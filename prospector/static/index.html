@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prospector — Screen Trust Beachhead Finder</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface2: #1a1a25;
+    --border: #2a2a3a;
+    --text: #e0e0e8;
+    --text2: #888898;
+    --accent: #6366f1;
+    --accent2: #818cf8;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --orange: #f97316;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Mono', monospace; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .app { display: grid; grid-template-columns: 320px 1fr; grid-template-rows: 56px 1fr; height: 100vh; }
+
+  .header { grid-column: 1 / -1; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; }
+  .header h1 { font-size: 16px; font-weight: 600; letter-spacing: 0.5px; }
+  .header h1 span { color: var(--accent); }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+
+  .tab-bar { display: flex; gap: 2px; }
+  .tab-btn { background: none; border: none; color: var(--text2); padding: 8px 16px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; border-bottom: 2px solid transparent; transition: all 0.15s; }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-btn:hover { color: var(--text); }
+
+  .run-btn { background: var(--accent); color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+  .run-btn:hover { background: var(--accent2); }
+  .run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .run-btn.running { background: var(--yellow); color: #000; }
+  .status-text { font-size: 12px; color: var(--text2); }
+
+  .sidebar { background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; padding: 16px; }
+  .section { margin-bottom: 20px; }
+  .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text2); margin-bottom: 10px; font-weight: 600; }
+
+  .adapter-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 8px; transition: border-color 0.15s; }
+  .adapter-card.enabled { border-color: var(--accent); }
+  .adapter-card.running { border-color: var(--yellow); }
+  .adapter-card.done { border-color: var(--green); }
+  .adapter-card.error { border-color: var(--red); }
+  .adapter-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .adapter-name { font-size: 13px; font-weight: 600; }
+  .adapter-toggle { width: 36px; height: 20px; border-radius: 10px; background: var(--border); border: none; cursor: pointer; position: relative; transition: background 0.15s; }
+  .adapter-toggle.on { background: var(--accent); }
+  .adapter-toggle::after { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: white; top: 2px; left: 2px; transition: left 0.15s; }
+  .adapter-toggle.on::after { left: 18px; }
+  .adapter-desc { font-size: 11px; color: var(--text2); line-height: 1.4; }
+  .adapter-status { font-size: 11px; margin-top: 6px; font-weight: 500; }
+  .adapter-status.running { color: var(--yellow); }
+  .adapter-status.done { color: var(--green); }
+  .adapter-status.error { color: var(--red); }
+  .adapter-categories { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .cat-tag { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: var(--bg); color: var(--text2); }
+
+  .pipeline-stage { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 6px; margin-bottom: 4px; font-size: 12px; background: var(--surface2); border: 1px solid var(--border); }
+  .pipeline-stage .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+  .pipeline-stage.active .dot { background: var(--yellow); animation: pulse 1s infinite; }
+  .pipeline-stage.done .dot { background: var(--green); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  .weight-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; }
+  .weight-row label { flex: 1; color: var(--text2); }
+  .weight-row input[type=range] { width: 80px; accent-color: var(--accent); }
+  .weight-val { width: 32px; text-align: right; font-variant-numeric: tabular-nums; }
+
+  .main { overflow-y: auto; padding: 20px; }
+
+  .stats-row { display: flex; gap: 16px; margin-bottom: 20px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; flex: 1; text-align: center; }
+  .stat-num { font-size: 28px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .stat-label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+
+  .results-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .results-header h2 { font-size: 14px; font-weight: 600; }
+  .result-count { font-size: 12px; color: var(--text2); }
+  .filter-bar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .filter-btn { font-size: 11px; padding: 4px 10px; border-radius: 4px; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); cursor: pointer; font-family: inherit; transition: all 0.15s; }
+  .filter-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+
+  .prospect-table { width: 100%; border-collapse: collapse; }
+  .prospect-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text2); padding: 8px 12px; border-bottom: 1px solid var(--border); font-weight: 600; cursor: pointer; user-select: none; }
+  .prospect-table th:hover { color: var(--text); }
+  .prospect-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: top; }
+  .prospect-table tr:hover { background: var(--surface2); }
+  .prospect-table tr.expanded { background: var(--surface); }
+
+  .score-bar { display: inline-block; height: 6px; border-radius: 3px; min-width: 4px; }
+  .score-container { display: flex; align-items: center; gap: 6px; }
+  .score-num { font-size: 11px; color: var(--text2); font-variant-numeric: tabular-nums; width: 28px; }
+
+  .source-badge { font-size: 10px; padding: 2px 6px; border-radius: 3px; font-weight: 600; }
+  .source-badge.github { background: #1a1e2e; color: #7c8aff; }
+  .source-badge.hackernews { background: #2a1a0a; color: #ff8c00; }
+  .source-badge.x_twitter { background: #1a1a2a; color: #8899aa; }
+  .source-badge.bootcamps { background: #1a2a1a; color: #66cc66; }
+
+  .signal-tag { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: var(--surface2); color: var(--text2); margin-right: 3px; margin-bottom: 2px; display: inline-block; }
+
+  .prospect-name { font-weight: 600; }
+  .prospect-name a { color: var(--accent2); text-decoration: none; }
+  .prospect-name a:hover { text-decoration: underline; }
+  .prospect-username { font-size: 11px; color: var(--text2); }
+  .prospect-bio { font-size: 11px; color: var(--text2); line-height: 1.4; max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .expanded-content { background: var(--surface); border-bottom: 1px solid var(--border); }
+  .expanded-content td { padding: 16px 12px; }
+  .expanded-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .expanded-section h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text2); margin-bottom: 8px; }
+  .expanded-bio { font-size: 12px; line-height: 1.5; white-space: normal; max-width: none; margin-bottom: 12px; }
+  .expanded-signals { display: flex; flex-wrap: wrap; gap: 4px; }
+  .outreach-box { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-top: 12px; }
+  .outreach-text { font-size: 12px; line-height: 1.6; white-space: pre-wrap; color: var(--text); }
+  .outreach-actions { display: flex; gap: 6px; margin-top: 10px; align-items: center; }
+  .outreach-btn { background: var(--accent); color: white; border: none; padding: 6px 14px; border-radius: 4px; font-size: 12px; cursor: pointer; font-family: inherit; }
+  .outreach-btn:hover { background: var(--accent2); }
+  .outreach-btn:disabled { opacity: 0.5; }
+  .copy-btn { background: var(--surface2); color: var(--text); border: 1px solid var(--border); padding: 6px 14px; border-radius: 4px; font-size: 12px; cursor: pointer; font-family: inherit; }
+  .copy-btn:hover { background: var(--border); }
+  .email-btn { background: #1a7f37; color: white; border: none; padding: 6px 14px; border-radius: 4px; font-size: 12px; cursor: pointer; font-family: inherit; }
+  .email-btn:hover { background: #22943e; }
+  .manual-btn { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); padding: 6px 14px; border-radius: 4px; font-size: 12px; cursor: pointer; font-family: inherit; }
+  .manual-btn:hover { background: var(--border); }
+  .outreach-status { font-size: 11px; padding: 3px 8px; border-radius: 3px; font-weight: 500; }
+  .outreach-status.sent { background: #1a3a1a; color: var(--green); }
+  .outreach-status.manual { background: #2a2a1a; color: var(--yellow); }
+  .outreach-status.replied { background: #1a1a3a; color: var(--accent2); }
+  .deep-profile { margin-top: 8px; font-size: 11px; color: var(--text2); }
+  .deep-profile .dp-item { margin-bottom: 4px; }
+  .deep-profile .dp-label { color: var(--text2); font-weight: 600; }
+
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 60vh; color: var(--text2); text-align: center; }
+  .empty-state h2 { font-size: 18px; color: var(--text); margin-bottom: 8px; }
+  .empty-state p { font-size: 13px; max-width: 400px; line-height: 1.5; }
+
+  .log-panel { margin-top: 4px; }
+  .log-entry { font-size: 11px; color: var(--text2); padding: 3px 0; font-family: 'SF Mono', monospace; }
+
+  /* CRM tab */
+  .crm-table { width: 100%; border-collapse: collapse; }
+  .crm-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text2); padding: 8px 12px; border-bottom: 1px solid var(--border); font-weight: 600; }
+  .crm-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .crm-table tr:hover { background: var(--surface2); }
+  .crm-status-select { background: var(--surface2); color: var(--text); border: 1px solid var(--border); padding: 4px 8px; border-radius: 4px; font-size: 11px; font-family: inherit; }
+
+  /* History tab */
+  .run-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 8px; cursor: pointer; transition: border-color 0.15s; }
+  .run-card:hover { border-color: var(--accent); }
+  .run-card h3 { font-size: 13px; margin-bottom: 4px; }
+  .run-meta { font-size: 11px; color: var(--text2); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="header">
+    <div style="display:flex;align-items:center;gap:24px">
+      <h1><span>PROSPECTOR</span></h1>
+      <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab('pipeline')" id="tab-pipeline">Pipeline</button>
+        <button class="tab-btn" onclick="switchTab('all')" id="tab-all">All Prospects</button>
+        <button class="tab-btn" onclick="switchTab('crm')" id="tab-crm">CRM</button>
+        <button class="tab-btn" onclick="switchTab('bootcamps')" id="tab-bootcamps">Bootcamps</button>
+        <button class="tab-btn" onclick="switchTab('history')" id="tab-history">History</button>
+      </div>
+    </div>
+    <div class="header-right">
+      <span class="status-text" id="statusText">Ready</span>
+      <button class="run-btn" id="runBtn" onclick="runPipeline()">Run Pipeline</button>
+    </div>
+  </header>
+
+  <aside class="sidebar">
+    <div class="section">
+      <div class="section-title">Source Adapters</div>
+      <div id="adapterList"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Pipeline</div>
+      <div class="pipeline-stage" id="stage-fetch"><div class="dot"></div>Fetch Prospects</div>
+      <div class="pipeline-stage" id="stage-extract"><div class="dot"></div>Extract Signals</div>
+      <div class="pipeline-stage" id="stage-rank"><div class="dot"></div>Score &amp; Rank</div>
+      <div class="pipeline-stage" id="stage-save"><div class="dot"></div>Save to DB</div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Scoring Weights</div>
+      <div class="weight-row">
+        <label>Trust Gap</label>
+        <input type="range" min="0" max="100" value="45" id="w-trust" oninput="updateWeight(this)">
+        <span class="weight-val" id="wv-trust">0.45</span>
+      </div>
+      <div class="weight-row">
+        <label>Reachability</label>
+        <input type="range" min="0" max="100" value="25" id="w-reach" oninput="updateWeight(this)">
+        <span class="weight-val" id="wv-reach">0.25</span>
+      </div>
+      <div class="weight-row">
+        <label>Relevance</label>
+        <input type="range" min="0" max="100" value="30" id="w-rel" oninput="updateWeight(this)">
+        <span class="weight-val" id="wv-rel">0.30</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Run Log</div>
+      <div id="logPanel" class="log-panel"></div>
+    </div>
+  </aside>
+
+  <main class="main" id="mainContent">
+    <!-- Pipeline tab -->
+    <div id="pipelineView">
+      <div class="empty-state" id="emptyState">
+        <h2>Find your beachhead users</h2>
+        <p>Enable adapters, adjust scoring weights, then hit Run Pipeline. Results are saved permanently — change the UI anytime without losing data.</p>
+      </div>
+      <div id="resultsArea" style="display:none">
+        <div class="results-header">
+          <h2>Ranked Prospects</h2>
+          <span class="result-count" id="resultCount"></span>
+        </div>
+        <div class="filter-bar" id="filterBar"></div>
+        <table class="prospect-table">
+          <thead>
+            <tr>
+              <th onclick="sortBy('rank')">#</th>
+              <th onclick="sortBy('name')">Name</th>
+              <th onclick="sortBy('source')">Source</th>
+              <th onclick="sortBy('category')">Category</th>
+              <th onclick="sortBy('trust_gap_score')">Trust Gap</th>
+              <th onclick="sortBy('reachability_score')">Reachability</th>
+              <th onclick="sortBy('relevance_score')">Relevance</th>
+              <th onclick="sortBy('final_score')">Score</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- All Prospects tab -->
+    <div id="allView" style="display:none">
+      <div class="stats-row" id="statsRow"></div>
+      <div class="results-header">
+        <h2>All Prospects (across all runs)</h2>
+        <span class="result-count" id="allResultCount"></span>
+      </div>
+      <div class="filter-bar" id="allFilterBar"></div>
+      <table class="prospect-table">
+        <thead>
+          <tr>
+            <th onclick="sortAllBy('rank')">#</th>
+            <th onclick="sortAllBy('name')">Name</th>
+            <th onclick="sortAllBy('source')">Source</th>
+            <th onclick="sortAllBy('category')">Category</th>
+            <th onclick="sortAllBy('final_score')">Score</th>
+            <th>Outreach</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="allResultsBody"></tbody>
+      </table>
+    </div>
+
+    <!-- CRM tab -->
+    <div id="crmView" style="display:none">
+      <div class="stats-row" id="crmStats"></div>
+      <div class="results-header">
+        <h2>Outreach Tracking</h2>
+      </div>
+      <table class="crm-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Source</th>
+            <th>Category</th>
+            <th>Outreach Status</th>
+            <th>Channel</th>
+            <th>Sent</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody id="crmBody"></tbody>
+      </table>
+    </div>
+
+    <!-- Bootcamps tab -->
+    <div id="bootcampsView" style="display:none">
+      <div class="results-header">
+        <h2>Bootcamp Partnerships</h2>
+        <div>
+          <button class="run-btn" onclick="runBootcamps()" id="bootcampRunBtn" style="font-size:12px;padding:6px 14px">Fetch Bootcamps</button>
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--text2);margin-bottom:16px">Offer free Memex to bootcamp students as an accountability tool and post-graduation proof of work. Click a bootcamp to generate personalized outreach to their leadership.</p>
+      <div class="stats-row" id="bootcampStats"></div>
+      <table class="prospect-table">
+        <thead>
+          <tr>
+            <th>Bootcamp</th>
+            <th>Programs</th>
+            <th>Size</th>
+            <th>Locations</th>
+            <th>Contact Target</th>
+            <th>Outreach</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="bootcampBody"></tbody>
+      </table>
+    </div>
+
+    <!-- History tab -->
+    <div id="historyView" style="display:none">
+      <div class="results-header">
+        <h2>Run History</h2>
+      </div>
+      <div id="runHistory"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+let adapters = {};
+let enabledAdapters = new Set();
+let currentRunId = null;
+let prospects = [];
+let allProspects = [];
+let expandedRow = null;
+let allExpandedRow = null;
+let activeFilter = null;
+let allActiveFilter = null;
+let sortField = 'final_score';
+let sortDir = -1;
+let allSortField = 'final_score';
+let allSortDir = -1;
+let currentTab = 'pipeline';
+
+// CRM state stored in localStorage
+function getCRM() { return JSON.parse(localStorage.getItem('prospector_crm') || '{}'); }
+function saveCRM(crm) { localStorage.setItem('prospector_crm', JSON.stringify(crm)); }
+function getCRMKey(p) { return `${p.source}:${p.username}`; }
+
+async function init() {
+  const resp = await fetch('/api/adapters');
+  adapters = await resp.json();
+  renderAdapters();
+  loadAllProspects();
+}
+
+let bootcampProspects = [];
+let bootcampExpanded = null;
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`tab-${tab}`).classList.add('active');
+  document.getElementById('pipelineView').style.display = tab === 'pipeline' ? '' : 'none';
+  document.getElementById('allView').style.display = tab === 'all' ? '' : 'none';
+  document.getElementById('crmView').style.display = tab === 'crm' ? '' : 'none';
+  document.getElementById('bootcampsView').style.display = tab === 'bootcamps' ? '' : 'none';
+  document.getElementById('historyView').style.display = tab === 'history' ? '' : 'none';
+  if (tab === 'all') loadAllProspects();
+  if (tab === 'crm') renderCRM();
+  if (tab === 'bootcamps') loadBootcampData();
+  if (tab === 'history') loadHistory();
+}
+
+async function loadAllProspects() {
+  const resp = await fetch('/api/prospects');
+  allProspects = await resp.json();
+  renderAllStats();
+  renderAllFilters();
+  renderAllResults();
+}
+
+async function loadHistory() {
+  const resp = await fetch('/api/runs');
+  const runs = await resp.json();
+  const container = document.getElementById('runHistory');
+  container.innerHTML = '';
+  if (!runs.length) { container.innerHTML = '<p style="color:var(--text2)">No runs yet</p>'; return; }
+  for (const run of runs) {
+    const date = run.started_at ? new Date(run.started_at * 1000).toLocaleString() : '?';
+    const adaptersUsed = JSON.parse(run.adapters_used || '[]').join(', ');
+    const card = document.createElement('div');
+    card.className = 'run-card';
+    card.innerHTML = `<h3>${run.id}</h3><div class="run-meta">${date} | ${adaptersUsed} | ${run.prospect_count} prospects | ${run.status}</div>`;
+    card.onclick = () => loadRunIntoTable(run.id);
+    container.appendChild(card);
+  }
+}
+
+async function loadRunIntoTable(runId) {
+  const resp = await fetch(`/api/runs/${runId}`);
+  const data = await resp.json();
+  prospects = data.prospects;
+  currentRunId = runId;
+  expandedRow = null;
+  renderFilters();
+  renderResults();
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('resultsArea').style.display = 'block';
+  switchTab('pipeline');
+}
+
+function renderAdapters() {
+  const container = document.getElementById('adapterList');
+  container.innerHTML = '';
+  for (const [key, adapter] of Object.entries(adapters)) {
+    enabledAdapters.add(key);
+    const card = document.createElement('div');
+    card.className = 'adapter-card enabled';
+    card.id = `adapter-${key}`;
+    card.innerHTML = `
+      <div class="adapter-header">
+        <span class="adapter-name">${adapter.name}</span>
+        <button class="adapter-toggle on" id="toggle-${key}" onclick="toggleAdapter('${key}')"></button>
+      </div>
+      <div class="adapter-desc">${adapter.description}</div>
+      <div class="adapter-categories">${adapter.categories.map(c => `<span class="cat-tag">${c}</span>`).join('')}</div>
+      <div class="adapter-status" id="status-${key}"></div>
+    `;
+    container.appendChild(card);
+  }
+}
+
+function toggleAdapter(key) {
+  const toggle = document.getElementById(`toggle-${key}`);
+  const card = document.getElementById(`adapter-${key}`);
+  if (enabledAdapters.has(key)) { enabledAdapters.delete(key); toggle.classList.remove('on'); card.classList.remove('enabled'); }
+  else { enabledAdapters.add(key); toggle.classList.add('on'); card.classList.add('enabled'); }
+}
+
+function updateWeight(el) {
+  const val = el.value / 100;
+  const name = el.id.replace('w-', '');
+  document.getElementById(`wv-${name}`).textContent = val.toFixed(2);
+}
+
+function getWeights() {
+  return { trust_gap: parseInt(document.getElementById('w-trust').value) / 100, reachability: parseInt(document.getElementById('w-reach').value) / 100, relevance: parseInt(document.getElementById('w-rel').value) / 100 };
+}
+
+function setStage(stage, state) { document.getElementById(`stage-${stage}`).className = `pipeline-stage ${state}`; }
+
+function addLog(msg) {
+  const panel = document.getElementById('logPanel');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.textContent = `${new Date().toLocaleTimeString()} ${msg}`;
+  panel.prepend(entry);
+}
+
+async function runPipeline() {
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true; btn.classList.add('running'); btn.textContent = 'Running...';
+  document.getElementById('statusText').textContent = 'Running pipeline...';
+  ['fetch', 'extract', 'rank', 'save'].forEach(s => setStage(s, ''));
+  for (const key of Object.keys(adapters)) {
+    document.getElementById(`adapter-${key}`).classList.remove('running', 'done', 'error');
+    document.getElementById(`status-${key}`).textContent = '';
+  }
+  setStage('fetch', 'active');
+  prospects = [];
+  expandedRow = null;
+
+  const ws = new WebSocket(`ws://${location.host}/ws/run`);
+  ws.onopen = () => { ws.send(JSON.stringify({ adapters: [...enabledAdapters], weights: getWeights() })); };
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    switch(msg.type) {
+      case 'run_started': currentRunId = msg.run_id; addLog(`Run started: ${msg.run_id}`); break;
+      case 'adapter_started': {
+        document.getElementById(`adapter-${msg.adapter}`).classList.add('running');
+        const s = document.getElementById(`status-${msg.adapter}`); s.textContent = 'Fetching...'; s.className = 'adapter-status running';
+        addLog(msg.message); break;
+      }
+      case 'adapter_done': {
+        const c = document.getElementById(`adapter-${msg.adapter}`); c.classList.remove('running'); c.classList.add('done');
+        const s = document.getElementById(`status-${msg.adapter}`); s.textContent = `${msg.count} prospects`; s.className = 'adapter-status done';
+        addLog(msg.message); break;
+      }
+      case 'adapter_error': {
+        const c = document.getElementById(`adapter-${msg.adapter}`); c.classList.remove('running'); c.classList.add('error');
+        const s = document.getElementById(`status-${msg.adapter}`); s.textContent = 'Error'; s.className = 'adapter-status error';
+        addLog(msg.message); break;
+      }
+      case 'stage':
+        if (msg.stage === 'extracting') { setStage('fetch', 'done'); setStage('extract', 'active'); }
+        if (msg.stage === 'ranking') { setStage('extract', 'done'); setStage('rank', 'active'); }
+        if (msg.stage === 'saving') { setStage('rank', 'done'); setStage('save', 'active'); }
+        addLog(msg.message); break;
+      case 'run_done':
+        setStage('save', 'done');
+        addLog(msg.message);
+        prospects = msg.prospects;
+        renderFilters(); renderResults();
+        document.getElementById('emptyState').style.display = 'none';
+        document.getElementById('resultsArea').style.display = 'block';
+        btn.disabled = false; btn.classList.remove('running'); btn.textContent = 'Run Pipeline';
+        document.getElementById('statusText').textContent = `${msg.total} prospects found & saved`;
+        break;
+      case 'error':
+        addLog(`ERROR: ${msg.message}`);
+        btn.disabled = false; btn.classList.remove('running'); btn.textContent = 'Run Pipeline';
+        document.getElementById('statusText').textContent = 'Error'; break;
+    }
+  };
+  ws.onerror = () => { addLog('WebSocket error'); btn.disabled = false; btn.classList.remove('running'); btn.textContent = 'Run Pipeline'; };
+}
+
+// --- Pipeline results ---
+function renderFilters() {
+  const cats = new Set(prospects.map(p => p.category));
+  const sources = new Set(prospects.map(p => p.source));
+  const bar = document.getElementById('filterBar');
+  bar.innerHTML = '';
+  bar.appendChild(mkFilter('All', !activeFilter, () => { activeFilter = null; renderFilters(); renderResults(); }));
+  for (const s of sources) bar.appendChild(mkFilter(s, activeFilter === `source:${s}`, () => { activeFilter = `source:${s}`; renderFilters(); renderResults(); }));
+  for (const c of [...cats].sort()) bar.appendChild(mkFilter(c, activeFilter === `cat:${c}`, () => { activeFilter = `cat:${c}`; renderFilters(); renderResults(); }));
+}
+function mkFilter(text, active, onclick) {
+  const btn = document.createElement('button'); btn.className = `filter-btn ${active ? 'active' : ''}`; btn.textContent = text; btn.onclick = onclick; return btn;
+}
+function sortBy(f) { if (sortField === f) sortDir *= -1; else { sortField = f; sortDir = f === 'name' ? 1 : -1; } renderResults(); }
+function getFiltered() {
+  let list = [...prospects];
+  if (activeFilter) {
+    if (activeFilter.startsWith('source:')) list = list.filter(p => p.source === activeFilter.slice(7));
+    else if (activeFilter.startsWith('cat:')) list = list.filter(p => p.category === activeFilter.slice(4));
+  }
+  return sortList(list, sortField, sortDir);
+}
+function sortList(list, field, dir) {
+  if (field === 'name') return list.sort((a,b) => dir * (a.display_name||'').localeCompare(b.display_name||''));
+  if (field === 'source' || field === 'category') return list.sort((a,b) => dir * (a[field]||'').localeCompare(b[field]||''));
+  return list.sort((a,b) => dir * ((a[field]||0) - (b[field]||0)));
+}
+
+function scoreColor(v) { return v >= 0.7 ? '#22c55e' : v >= 0.4 ? '#eab308' : '#f97316'; }
+function renderScoreBar(v) { const p = Math.round(v*100); return `<div class="score-container"><div class="score-bar" style="width:${p}px;background:${scoreColor(v)}"></div><span class="score-num">${v.toFixed(2)}</span></div>`; }
+
+function getOutreachStatus(p) {
+  const crm = getCRM(); const key = getCRMKey(p); const entry = crm[key];
+  if (!entry) return '';
+  return entry.status || '';
+}
+
+function renderResults() {
+  const filtered = getFiltered();
+  document.getElementById('resultCount').textContent = `${filtered.length} of ${prospects.length} prospects`;
+  const tbody = document.getElementById('resultsBody');
+  tbody.innerHTML = '';
+  filtered.forEach((p, i) => {
+    const idx = p.id;
+    const status = getOutreachStatus(p);
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    tr.onclick = () => { expandedRow = expandedRow === idx ? null : idx; renderResults(); };
+    if (expandedRow === idx) tr.classList.add('expanded');
+    tr.innerHTML = `
+      <td style="color:var(--text2)">${i+1}</td>
+      <td><div class="prospect-name"><a href="${p.profile_url}" target="_blank" onclick="event.stopPropagation()">${p.display_name}</a></div><div class="prospect-username">@${p.username}</div></td>
+      <td><span class="source-badge ${p.source}">${p.source}</span></td>
+      <td><span class="cat-tag">${p.category}</span></td>
+      <td>${renderScoreBar(p.trust_gap_score)}</td>
+      <td>${renderScoreBar(p.reachability_score)}</td>
+      <td>${renderScoreBar(p.relevance_score)}</td>
+      <td>${renderScoreBar(p.final_score)}</td>
+      <td>${status ? `<span class="outreach-status ${status}">${status}</span>` : ''}</td>
+    `;
+    tbody.appendChild(tr);
+    if (expandedRow === idx) tbody.appendChild(makeExpandedRow(p));
+  });
+}
+
+function makeExpandedRow(p) {
+  const expTr = document.createElement('tr');
+  expTr.className = 'expanded-content';
+  const crm = getCRM();
+  const key = getCRMKey(p);
+  const entry = crm[key] || {};
+  const deepHtml = p.deep_profile ? renderDeepProfile(p.deep_profile) : '';
+
+  expTr.innerHTML = `<td colspan="9">
+    <div class="expanded-bio">${p.bio || '<em style="color:var(--text2)">No bio</em>'}</div>
+    <div class="expanded-grid">
+      <div class="expanded-section">
+        <h4>Signals</h4>
+        <div class="expanded-signals">${(p.signals||[]).map(s => `<span class="signal-tag">${s}</span>`).join('')}</div>
+      </div>
+      <div class="expanded-section">
+        <h4>Links</h4>
+        <div style="font-size:12px">
+          <a href="${p.profile_url}" target="_blank" style="color:var(--accent2)">${p.profile_url}</a>
+          ${(p.raw_data||{}).github_url ? `<br><a href="${p.raw_data.github_url}" target="_blank" style="color:var(--accent2)">${p.raw_data.github_url}</a>` : ''}
+          ${(p.raw_data||{}).linkedin_url ? `<br><a href="${p.raw_data.linkedin_url}" target="_blank" style="color:var(--accent2)">${p.raw_data.linkedin_url}</a>` : ''}
+          ${(p.raw_data||{}).website_url ? `<br><a href="${p.raw_data.website_url}" target="_blank" style="color:var(--accent2)">${p.raw_data.website_url}</a>` : ''}
+        </div>
+      </div>
+    </div>
+    ${deepHtml}
+    <div class="outreach-box">
+      <h4 style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2);margin-bottom:8px">Outreach Message</h4>
+      <div class="outreach-text" id="outreach-${p.id}">${p.outreach_message || '<em style="color:var(--text2)">Click Generate to research this person and write a personalized message</em>'}</div>
+      <div class="outreach-actions">
+        ${!p.outreach_message ? `<button class="outreach-btn" onclick="event.stopPropagation(); generateOutreach(${p.id})">Generate Outreach</button>` : ''}
+        ${p.outreach_message ? `<button class="copy-btn" onclick="event.stopPropagation(); copyText(${p.id})">Copy</button>` : ''}
+        ${p.outreach_message ? `<button class="email-btn" onclick="event.stopPropagation(); openGmail(${p.id})">Draft in Gmail</button>` : ''}
+        ${p.outreach_message ? `<button class="manual-btn" onclick="event.stopPropagation(); markManual(${p.id}, '${p.source}', '${p.username}')">Mark Sent (manual)</button>` : ''}
+        ${entry.status ? `<span class="outreach-status ${entry.status}">${entry.status}${entry.sent_at ? ' ' + new Date(entry.sent_at).toLocaleDateString() : ''}</span>` : ''}
+      </div>
+    </div>
+  </td>`;
+  return expTr;
+}
+
+function renderDeepProfile(dp) {
+  if (!dp || !dp.details) return '';
+  let html = '<div class="deep-profile" style="margin-top:12px"><h4 style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2);margin-bottom:8px">Deep Profile</h4>';
+  const gh = dp.details.github;
+  if (gh) {
+    html += `<div class="dp-item"><span class="dp-label">GitHub:</span> ${gh.public_repos} repos, ${gh.followers} followers${gh.location ? ', ' + gh.location : ''}${gh.company ? ', ' + gh.company : ''}</div>`;
+  }
+  const repos = dp.details.top_repos;
+  if (repos && repos.length) {
+    html += `<div class="dp-item"><span class="dp-label">Top repos:</span> ${repos.map(r => `${r.name}${r.stars ? ' (' + r.stars + '*)' : ''}`).join(', ')}</div>`;
+  }
+  const hn = dp.details.hn;
+  if (hn) {
+    html += `<div class="dp-item"><span class="dp-label">HN:</span> ${hn.karma} karma, ${hn.submitted_count} submissions</div>`;
+  }
+  if (dp.is_senior) html += `<div class="dp-item"><span class="dp-label" style="color:var(--yellow)">Assessed as senior</span> — outreach will ask for advice</div>`;
+  html += `<div class="dp-item"><span class="dp-label">Lookups:</span> ${dp.lookups_done.join(', ')}</div></div>`;
+  return html;
+}
+
+async function generateOutreach(id) {
+  const btn = event.target; btn.disabled = true; btn.textContent = 'Researching...';
+  const resp = await fetch(`/api/prospects/${id}/outreach`, { method: 'POST' });
+  const data = await resp.json();
+  // Update local data
+  const updateIn = (list) => { const p = list.find(x => x.id === id); if (p) { p.outreach_message = data.message; p.deep_profile = data.deep_profile; } };
+  updateIn(prospects); updateIn(allProspects);
+  if (currentTab === 'pipeline') renderResults();
+  else if (currentTab === 'all') renderAllResults();
+}
+
+function copyText(id) {
+  const p = prospects.find(x => x.id === id) || allProspects.find(x => x.id === id);
+  if (p) navigator.clipboard.writeText(p.outreach_message).then(() => { const b = event.target; b.textContent = 'Copied!'; setTimeout(() => b.textContent = 'Copy', 1500); });
+}
+
+function openGmail(id) {
+  const p = prospects.find(x => x.id === id) || allProspects.find(x => x.id === id);
+  if (!p) return;
+  const subject = encodeURIComponent(`Quick question — ${p.display_name}`);
+  const body = encodeURIComponent(p.outreach_message);
+  window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${subject}&body=${body}`, '_blank');
+  // Track in CRM
+  const crm = getCRM(); const key = getCRMKey(p);
+  crm[key] = { ...crm[key], status: 'sent', channel: 'email', sent_at: Date.now(), prospect_name: p.display_name, source: p.source, username: p.username, category: p.category, profile_url: p.profile_url };
+  saveCRM(crm);
+}
+
+function markManual(id, source, username) {
+  const p = prospects.find(x => x.id === id) || allProspects.find(x => x.id === id);
+  if (!p) return;
+  const crm = getCRM(); const key = getCRMKey(p);
+  const channel = source === 'x_twitter' ? 'x_dm' : source === 'hackernews' ? 'hn_reply' : 'other';
+  crm[key] = { ...crm[key], status: 'manual', channel, sent_at: Date.now(), prospect_name: p.display_name, source, username, category: p.category, profile_url: p.profile_url };
+  saveCRM(crm);
+  if (currentTab === 'pipeline') renderResults();
+  else if (currentTab === 'all') renderAllResults();
+  else if (currentTab === 'crm') renderCRM();
+}
+
+// --- All Prospects tab ---
+function renderAllStats() {
+  const crm = getCRM();
+  const total = allProspects.length;
+  const withOutreach = allProspects.filter(p => p.outreach_message).length;
+  const sent = Object.values(crm).filter(e => e.status === 'sent' || e.status === 'manual').length;
+  const replied = Object.values(crm).filter(e => e.status === 'replied').length;
+  document.getElementById('statsRow').innerHTML = `
+    <div class="stat-card"><div class="stat-num">${total}</div><div class="stat-label">Total Prospects</div></div>
+    <div class="stat-card"><div class="stat-num">${withOutreach}</div><div class="stat-label">Messages Generated</div></div>
+    <div class="stat-card"><div class="stat-num">${sent}</div><div class="stat-label">Outreach Sent</div></div>
+    <div class="stat-card"><div class="stat-num">${replied}</div><div class="stat-label">Replies</div></div>
+  `;
+}
+function renderAllFilters() {
+  const cats = new Set(allProspects.map(p => p.category));
+  const sources = new Set(allProspects.map(p => p.source));
+  const bar = document.getElementById('allFilterBar');
+  bar.innerHTML = '';
+  bar.appendChild(mkFilter('All', !allActiveFilter, () => { allActiveFilter = null; renderAllFilters(); renderAllResults(); }));
+  for (const s of sources) bar.appendChild(mkFilter(s, allActiveFilter === `source:${s}`, () => { allActiveFilter = `source:${s}`; renderAllFilters(); renderAllResults(); }));
+  for (const c of [...cats].sort()) bar.appendChild(mkFilter(c, allActiveFilter === `cat:${c}`, () => { allActiveFilter = `cat:${c}`; renderAllFilters(); renderAllResults(); }));
+}
+function sortAllBy(f) { if (allSortField === f) allSortDir *= -1; else { allSortField = f; allSortDir = f === 'name' ? 1 : -1; } renderAllResults(); }
+function renderAllResults() {
+  let list = [...allProspects];
+  if (allActiveFilter) {
+    if (allActiveFilter.startsWith('source:')) list = list.filter(p => p.source === allActiveFilter.slice(7));
+    else if (allActiveFilter.startsWith('cat:')) list = list.filter(p => p.category === allActiveFilter.slice(4));
+  }
+  list = sortList(list, allSortField, allSortDir);
+  document.getElementById('allResultCount').textContent = `${list.length} of ${allProspects.length}`;
+  const tbody = document.getElementById('allResultsBody');
+  tbody.innerHTML = '';
+  list.forEach((p, i) => {
+    const status = getOutreachStatus(p);
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    tr.onclick = () => { allExpandedRow = allExpandedRow === p.id ? null : p.id; renderAllResults(); };
+    if (allExpandedRow === p.id) tr.classList.add('expanded');
+    tr.innerHTML = `
+      <td style="color:var(--text2)">${i+1}</td>
+      <td><div class="prospect-name"><a href="${p.profile_url}" target="_blank" onclick="event.stopPropagation()">${p.display_name}</a></div><div class="prospect-username">@${p.username}</div></td>
+      <td><span class="source-badge ${p.source}">${p.source}</span></td>
+      <td><span class="cat-tag">${p.category}</span></td>
+      <td>${renderScoreBar(p.final_score)}</td>
+      <td>${p.outreach_message ? '<span style="color:var(--green);font-size:11px">Generated</span>' : '<span style="color:var(--text2);font-size:11px">Pending</span>'}</td>
+      <td>${status ? `<span class="outreach-status ${status}">${status}</span>` : ''}</td>
+    `;
+    tbody.appendChild(tr);
+    if (allExpandedRow === p.id) {
+      // reuse the same expanded row logic but adapt for allProspects
+      const expTr = makeExpandedRow(p);
+      tbody.appendChild(expTr);
+    }
+  });
+}
+
+// --- CRM tab ---
+function renderCRM() {
+  const crm = getCRM();
+  const entries = Object.entries(crm).sort((a,b) => (b[1].sent_at||0) - (a[1].sent_at||0));
+  const sent = entries.filter(([,e]) => e.status === 'sent' || e.status === 'manual').length;
+  const replied = entries.filter(([,e]) => e.status === 'replied').length;
+  const rate = sent > 0 ? ((replied / sent) * 100).toFixed(1) : '0.0';
+  document.getElementById('crmStats').innerHTML = `
+    <div class="stat-card"><div class="stat-num">${entries.length}</div><div class="stat-label">Total Tracked</div></div>
+    <div class="stat-card"><div class="stat-num">${sent}</div><div class="stat-label">Outreach Sent</div></div>
+    <div class="stat-card"><div class="stat-num">${replied}</div><div class="stat-label">Replies</div></div>
+    <div class="stat-card"><div class="stat-num">${rate}%</div><div class="stat-label">Response Rate</div></div>
+  `;
+  const tbody = document.getElementById('crmBody');
+  tbody.innerHTML = '';
+  for (const [key, entry] of entries) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><a href="${entry.profile_url || '#'}" target="_blank" style="color:var(--accent2)">${entry.prospect_name || key}</a></td>
+      <td><span class="source-badge ${entry.source || ''}">${entry.source || '?'}</span></td>
+      <td><span class="cat-tag">${entry.category || ''}</span></td>
+      <td>
+        <select class="crm-status-select" onchange="updateCRMStatus('${key}', this.value)">
+          <option value="sent" ${entry.status==='sent'?'selected':''}>Sent</option>
+          <option value="manual" ${entry.status==='manual'?'selected':''}>Manual</option>
+          <option value="replied" ${entry.status==='replied'?'selected':''}>Replied</option>
+          <option value="meeting" ${entry.status==='meeting'?'selected':''}>Meeting</option>
+          <option value="converted" ${entry.status==='converted'?'selected':''}>Converted</option>
+          <option value="no_response" ${entry.status==='no_response'?'selected':''}>No Response</option>
+        </select>
+      </td>
+      <td style="font-size:11px;color:var(--text2)">${entry.channel || '?'}</td>
+      <td style="font-size:11px;color:var(--text2)">${entry.sent_at ? new Date(entry.sent_at).toLocaleDateString() : ''}</td>
+      <td><input type="text" value="${entry.notes||''}" placeholder="Add notes..." onchange="updateCRMNotes('${key}', this.value)"
+        style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:11px;width:100%;font-family:inherit"></td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function updateCRMStatus(key, status) { const crm = getCRM(); if (crm[key]) { crm[key].status = status; saveCRM(crm); renderCRM(); } }
+function updateCRMNotes(key, notes) { const crm = getCRM(); if (crm[key]) { crm[key].notes = notes; saveCRM(crm); } }
+
+// --- Bootcamps tab ---
+async function loadBootcampData() {
+  // Load any existing bootcamp prospects from DB
+  const resp = await fetch('/api/prospects');
+  const all = await resp.json();
+  bootcampProspects = all.filter(p => p.source === 'bootcamps');
+  renderBootcampStats();
+  renderBootcamps();
+}
+
+async function runBootcamps() {
+  const btn = document.getElementById('bootcampRunBtn');
+  btn.disabled = true; btn.textContent = 'Fetching...';
+  const ws = new WebSocket(`ws://${location.host}/ws/run`);
+  ws.onopen = () => { ws.send(JSON.stringify({ adapters: ['bootcamps'], weights: getWeights() })); };
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === 'run_done') {
+      bootcampProspects = msg.prospects;
+      renderBootcampStats(); renderBootcamps();
+      btn.disabled = false; btn.textContent = 'Fetch Bootcamps';
+    }
+    if (msg.type === 'error') { btn.disabled = false; btn.textContent = 'Fetch Bootcamps'; }
+  };
+}
+
+function renderBootcampStats() {
+  const crm = getCRM();
+  const total = bootcampProspects.length;
+  const withOutreach = bootcampProspects.filter(p => p.outreach_message).length;
+  const sent = bootcampProspects.filter(p => { const e = crm[getCRMKey(p)]; return e && (e.status === 'sent' || e.status === 'manual'); }).length;
+  const replied = bootcampProspects.filter(p => { const e = crm[getCRMKey(p)]; return e && e.status === 'replied'; }).length;
+  document.getElementById('bootcampStats').innerHTML = `
+    <div class="stat-card"><div class="stat-num">${total}</div><div class="stat-label">Bootcamps</div></div>
+    <div class="stat-card"><div class="stat-num">${withOutreach}</div><div class="stat-label">Messages Ready</div></div>
+    <div class="stat-card"><div class="stat-num">${sent}</div><div class="stat-label">Contacted</div></div>
+    <div class="stat-card"><div class="stat-num">${replied}</div><div class="stat-label">Replies</div></div>
+  `;
+}
+
+function renderBootcamps() {
+  const crm = getCRM();
+  const tbody = document.getElementById('bootcampBody');
+  tbody.innerHTML = '';
+  for (const p of bootcampProspects) {
+    const raw = p.raw_data || {};
+    const status = getOutreachStatus(p);
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    tr.onclick = () => { bootcampExpanded = bootcampExpanded === p.id ? null : p.id; renderBootcamps(); };
+    if (bootcampExpanded === p.id) tr.classList.add('expanded');
+    tr.innerHTML = `
+      <td><div class="prospect-name"><a href="${p.profile_url}" target="_blank" onclick="event.stopPropagation()">${p.display_name}</a></div></td>
+      <td style="font-size:11px">${(raw.programs || []).join(', ')}</td>
+      <td style="font-size:11px">${raw.size || ''}</td>
+      <td style="font-size:11px">${raw.locations || ''}</td>
+      <td style="font-size:11px;color:var(--accent2)">${raw.contact_role || ''}</td>
+      <td>${p.outreach_message ? '<span style="color:var(--green);font-size:11px">Ready</span>' : '<span style="color:var(--text2);font-size:11px">Generate</span>'}</td>
+      <td>${status ? `<span class="outreach-status ${status}">${status}</span>` : ''}</td>
+    `;
+    tbody.appendChild(tr);
+
+    if (bootcampExpanded === p.id) {
+      const entry = crm[getCRMKey(p)] || {};
+      const expTr = document.createElement('tr');
+      expTr.className = 'expanded-content';
+      expTr.innerHTML = `<td colspan="7">
+        <div style="margin-bottom:12px">
+          <div style="font-size:12px;margin-bottom:4px"><strong>Pitch angle:</strong> ${raw.pitch_angle || ''}</div>
+          <div style="font-size:12px;margin-bottom:4px"><strong>Contact search:</strong> <em>${raw.contact_search || ''}</em></div>
+          <div style="font-size:11px;color:var(--text2)">Search LinkedIn for: "${raw.contact_search || ''}" to find the right person</div>
+        </div>
+        <div class="outreach-box">
+          <h4 style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2);margin-bottom:8px">Outreach Email</h4>
+          <div class="outreach-text" id="outreach-bc-${p.id}">${p.outreach_message || '<em style="color:var(--text2)">Click Generate to create a personalized partnership pitch</em>'}</div>
+          <div class="outreach-actions">
+            ${!p.outreach_message ? `<button class="outreach-btn" onclick="event.stopPropagation(); generateOutreach(${p.id})">Generate Outreach</button>` : ''}
+            ${p.outreach_message ? `<button class="copy-btn" onclick="event.stopPropagation(); copyBootcamp(${p.id})">Copy</button>` : ''}
+            ${p.outreach_message ? `<button class="email-btn" onclick="event.stopPropagation(); emailBootcamp(${p.id})">Draft in Gmail</button>` : ''}
+            ${p.outreach_message ? `<button class="manual-btn" onclick="event.stopPropagation(); markBootcampSent(${p.id})">Mark Sent</button>` : ''}
+            ${entry.status ? `<span class="outreach-status ${entry.status}">${entry.status}</span>` : ''}
+          </div>
+        </div>
+      </td>`;
+      tbody.appendChild(expTr);
+    }
+  }
+}
+
+function copyBootcamp(id) {
+  const p = bootcampProspects.find(x => x.id === id);
+  if (p) navigator.clipboard.writeText(p.outreach_message).then(() => { const b = event.target; b.textContent = 'Copied!'; setTimeout(() => b.textContent = 'Copy', 1500); });
+}
+
+function emailBootcamp(id) {
+  const p = bootcampProspects.find(x => x.id === id);
+  if (!p) return;
+  const subject = encodeURIComponent(`Free screen history tool for ${p.display_name} students`);
+  const body = encodeURIComponent(p.outreach_message);
+  window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${subject}&body=${body}`, '_blank');
+  const crm = getCRM(); const key = getCRMKey(p);
+  crm[key] = { ...crm[key], status: 'sent', channel: 'email', sent_at: Date.now(), prospect_name: p.display_name, source: p.source, username: p.username, category: 'Bootcamp Partnership', profile_url: p.profile_url };
+  saveCRM(crm); renderBootcampStats(); renderBootcamps();
+}
+
+function markBootcampSent(id) {
+  const p = bootcampProspects.find(x => x.id === id);
+  if (!p) return;
+  const crm = getCRM(); const key = getCRMKey(p);
+  crm[key] = { ...crm[key], status: 'manual', channel: 'email', sent_at: Date.now(), prospect_name: p.display_name, source: p.source, username: p.username, category: 'Bootcamp Partnership', profile_url: p.profile_url };
+  saveCRM(crm); renderBootcampStats(); renderBootcamps();
+}
+
+// Override generateOutreach to also update bootcamp view
+const _origGenOutreach = generateOutreach;
+generateOutreach = async function(id) {
+  const btn = event.target; btn.disabled = true; btn.textContent = 'Researching...';
+  const resp = await fetch(`/api/prospects/${id}/outreach`, { method: 'POST' });
+  const data = await resp.json();
+  const updateIn = (list) => { const p = list.find(x => x.id === id); if (p) { p.outreach_message = data.message; p.deep_profile = data.deep_profile; } };
+  updateIn(prospects); updateIn(allProspects); updateIn(bootcampProspects);
+  if (currentTab === 'pipeline') renderResults();
+  else if (currentTab === 'all') renderAllResults();
+  else if (currentTab === 'bootcamps') renderBootcamps();
+};
+
+init();
+</script>
+</body>
+</html>

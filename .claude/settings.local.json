@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(memex stats:*)",
+      "Bash(grep:*)",
+      "Bash(wc:*)",
+      "Bash(python -m cli.main:*)",
+      "Bash(python3 -m cli.main:*)",
+      "Bash(/Users/joe/dev/memex/.venv/bin/python:*)",
+      "Bash(memex search:*)",
+      "Bash(memex:*)",
+      "Bash(uv run python:*)"
+    ]
+  }
+}

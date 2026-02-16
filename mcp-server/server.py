@@ -29,6 +29,7 @@ from mcp.types import (
     TextContent,
     Tool,
     ServerCapabilities,
+    ToolsCapability,
 )
 
 # Flow imports
@@ -378,7 +379,7 @@ async def main():
         init_options = InitializationOptions(
             server_name="flow",
             server_version="1.0.0",
-            capabilities=ServerCapabilities(),
+            capabilities=ServerCapabilities(tools=ToolsCapability()),
         )
         
         await server.run(
