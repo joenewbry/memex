@@ -37,9 +37,16 @@ class RecentSearchTool:
         """Initialize ChromaDB client."""
         try:
             import chromadb
-            
-            chroma_path = self.workspace_root / "refinery" / "chroma"
-            self.chroma_client = chromadb.PersistentClient(path=str(chroma_path))
+
+            # Try HTTP client first (server running)
+            try:
+                self.chroma_client = chromadb.HttpClient(host="localhost", port=8000)
+                self.chroma_client.heartbeat()
+                logger.info("Connected to ChromaDB server at localhost:8000")
+            except Exception:
+                # Fall back to persistent client
+                chroma_path = self.workspace_root / "refinery" / "chroma"
+                self.chroma_client = chromadb.PersistentClient(path=str(chroma_path))
             
             # Try to get the collection
             try:
