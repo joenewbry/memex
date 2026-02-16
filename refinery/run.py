@@ -28,12 +28,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from PIL import Image
-import pytesseract
 from io import BytesIO
 
-# Import screen detection and chroma client
+# Import screen detection, chroma client, and OCR
 from lib.screen_detection import screen_detector
 from lib.chroma_client import chroma_client
+from lib.ocr import extract_text, detect_backend, get_backend_info
 
 logger = logging.getLogger(__name__)
 
@@ -53,37 +53,15 @@ class FlowRunner:
         self.processing_queue: List[Dict[str, Any]] = []
         self._semaphore = asyncio.Semaphore(max_concurrent_ocr)
         
-        # Ensure tesseract is available
-        self._configure_tesseract()
-        
+        # Detect OCR backend (Apple Vision on macOS, Tesseract elsewhere)
+        backend = detect_backend()
+        backend_info = get_backend_info()
+        logger.info(f"OCR backend: {backend_info['description']}")
+
         # Initialize threading for background OCR processing
         self.ocr_thread = None
         self.ocr_queue = []
         self.ocr_lock = threading.Lock()
-    
-    def _configure_tesseract(self):
-        """Configure tesseract executable path if needed."""
-        system = platform.system().lower()
-        
-        if system == "windows":
-            # Common Windows installation paths
-            possible_paths = [
-                r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-                r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"
-            ]
-            
-            for path in possible_paths:
-                if Path(path).exists():
-                    pytesseract.pytesseract.tesseract_cmd = path
-                    break
-        
-        # Test tesseract availability
-        try:
-            pytesseract.get_tesseract_version()
-            logger.info(f"Tesseract version: {pytesseract.get_tesseract_version()}")
-        except Exception as error:
-            logger.error(f"Tesseract not available: {error}")
-            raise Exception("Tesseract OCR not installed or not in PATH")
     
     async def ensure_directories(self):
         """Ensure output directories exist."""
@@ -97,14 +75,10 @@ class FlowRunner:
         
         try:
             logger.info(f"[{timestamp}] Processing OCR on thread {threading.current_thread().ident}")
-            
-            # Convert PIL image to format suitable for tesseract
-            if image.mode != 'RGB':
-                image = image.convert('RGB')
-            
-            # Perform OCR
-            text = pytesseract.image_to_string(image, lang='eng')
-            text = text.strip().replace('\n+', '\n')
+
+            # Perform OCR (Apple Vision on macOS, Tesseract elsewhere)
+            text = extract_text(image)
+            text = text.strip()
             
             result = {
                 "screen_name": screen_name,

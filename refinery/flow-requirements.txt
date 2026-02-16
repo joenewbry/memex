@@ -11,8 +11,11 @@ pyscreenshot>=3.1
 pyautogui>=0.9.54
 
 # OCR processing
-pytesseract>=0.3.10
-opencv-python>=4.8.1.78
+# macOS: Apple Vision (native, high quality, no external install)
+pyobjc-framework-Vision>=10.0; sys_platform == 'darwin'
+# Linux/Windows: Tesseract fallback
+pytesseract>=0.3.10; sys_platform != 'darwin'
+opencv-python>=4.8.1.78; sys_platform != 'darwin'
 
 # Data processing
 pandas>=2.1.4
