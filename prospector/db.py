@@ -137,3 +137,82 @@ def _row_to_prospect_dict(row: dict) -> dict:
     row["raw_data"] = json.loads(row.get("raw_data") or "{}")
     row["deep_profile"] = json.loads(row.get("deep_profile") or "null")
     return row
+
+
+async def get_daily_prospect_counts(days: int = 30) -> list[dict]:
+    """Get number of prospects found per day."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        cursor = await conn.execute("""
+            SELECT date(fetched_at, 'unixepoch') as date, COUNT(*) as count
+            FROM prospects
+            WHERE fetched_at > (strftime('%s', 'now') - ? * 86400)
+            GROUP BY date(fetched_at, 'unixepoch')
+            ORDER BY date
+        """, (days,))
+        return [dict(r) for r in await cursor.fetchall()]
+
+
+async def get_daily_run_counts(days: int = 30) -> list[dict]:
+    """Get number of pipeline runs per day."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        cursor = await conn.execute("""
+            SELECT date(started_at, 'unixepoch') as date, COUNT(*) as count
+            FROM runs
+            WHERE started_at > (strftime('%s', 'now') - ? * 86400)
+            GROUP BY date(started_at, 'unixepoch')
+            ORDER BY date
+        """, (days,))
+        return [dict(r) for r in await cursor.fetchall()]
+
+
+async def get_stats_summary() -> dict:
+    """Get aggregate stats for the stats page."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+
+        cur = await conn.execute("SELECT COUNT(*) as total FROM prospects")
+        total_prospects = (await cur.fetchone())["total"]
+
+        cur = await conn.execute("SELECT COUNT(*) as total FROM prospects WHERE outreach_message IS NOT NULL AND outreach_message != ''")
+        total_outreach = (await cur.fetchone())["total"]
+
+        cur = await conn.execute("SELECT COUNT(*) as total FROM runs")
+        total_runs = (await cur.fetchone())["total"]
+
+        cur = await conn.execute("""
+            SELECT source, COUNT(*) as count, AVG(final_score) as avg_score
+            FROM prospects GROUP BY source ORDER BY count DESC
+        """)
+        by_source = [dict(r) for r in await cur.fetchall()]
+
+        cur = await conn.execute("""
+            SELECT category, COUNT(*) as count, AVG(final_score) as avg_score
+            FROM prospects WHERE category IS NOT NULL AND category != ''
+            GROUP BY category ORDER BY count DESC
+        """)
+        by_category = [dict(r) for r in await cur.fetchall()]
+
+        cur = await conn.execute("""
+            SELECT
+                CASE
+                    WHEN final_score < 0.2 THEN '0.0-0.2'
+                    WHEN final_score < 0.4 THEN '0.2-0.4'
+                    WHEN final_score < 0.6 THEN '0.4-0.6'
+                    WHEN final_score < 0.8 THEN '0.6-0.8'
+                    ELSE '0.8-1.0'
+                END as bucket,
+                COUNT(*) as count
+            FROM prospects GROUP BY bucket ORDER BY bucket
+        """)
+        score_dist = [dict(r) for r in await cur.fetchall()]
+
+        return {
+            "total_prospects": total_prospects,
+            "total_outreach": total_outreach,
+            "total_runs": total_runs,
+            "by_source": by_source,
+            "by_category": by_category,
+            "score_distribution": score_dist,
+        }
