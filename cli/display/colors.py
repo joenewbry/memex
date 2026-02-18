@@ -13,6 +13,9 @@ COLORS = {
     "muted": "#6B7280",        # Gray
     "text": "#F3F4F6",         # Light gray
     "dim": "#4B5563",          # Darker gray
+    "creature_body": "#06B6D4", # Cyan-500 (elephant body)
+    "creature_eye": "#FACC15",  # Yellow-400 (elephant eye)
+    "accent": "#A78BFA",        # Violet-400 (group headers)
 }
 
 # Rich styles

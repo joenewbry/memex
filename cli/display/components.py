@@ -22,39 +22,78 @@ class StatusIndicator(Enum):
     SUCCESS = ("✓", "success")
 
 
-LOGO = """    ┌───────────┐
-    │  MEMEX    │
-    ├───────────┤
-    │ ▪ ▪ ▪ ▪   │
-    ├───────────┤
-    │ ▪ ▪ ▪ ▪   │
-    ├───────────┤
-    │ ▪ ▪ ▪ ▪   │
-    └───────────┘"""
-
 LOGO_MINIMAL = "▣ Memex"
 
 
+def _get_instance_info() -> tuple[str, str, str, str]:
+    """Get hosting mode, AI provider, instance name, and capture count.
+
+    Returns defaults on any error so the banner always renders.
+    """
+    hosting = "Local"
+    provider = ""
+    instance = ""
+    captures = ""
+
+    try:
+        from cli.services.instance import InstanceService
+        config = InstanceService().load()
+        hosting = config.hosting_mode.capitalize()
+        instance = config.instance_name
+    except Exception:
+        pass
+
+    try:
+        from cli.config.credentials import get_configured_providers
+        providers = get_configured_providers()
+        if providers:
+            provider = providers[0].capitalize()
+    except Exception:
+        pass
+
+    try:
+        from cli.services.health import HealthService
+        count = HealthService().get_ocr_file_count()
+        if count > 0:
+            captures = f"{count:,} captures"
+    except Exception:
+        pass
+
+    return hosting, provider, instance, captures
+
+
 def print_logo():
-    """Print the Memex logo with version info."""
-    lines = LOGO.split("\n")
-    info_lines = [
-        "",
-        "",
-        f"memex v{__version__}",
-        "───────────────",
-        '"your digital memory"',
-        "",
-        "",
-        "",
+    """Print the Memex elephant creature with version and instance info."""
+    hosting, provider, instance, captures = _get_instance_info()
+
+    # Build the info string: "Local · Anthropic · joe"
+    info_parts = [hosting]
+    if provider:
+        info_parts.append(provider)
+    if instance:
+        info_parts.append(instance)
+    info_line = " · ".join(info_parts)
+
+    C = COLORS["creature_body"]
+    E = COLORS["creature_eye"]
+    M = COLORS["muted"]
+
+    # Elephant creature lines paired with info lines
+    creature_info = [
+        (f"[{C}]       ▄▄[/]",          ""),
+        (f"[{C}]    ▄▄████[/]",         f"[bold]Memex[/bold] [dim]v{__version__}[/dim]"),
+        (f"[{C}]   ▐[/][{E}]◉[/][{C}]▌████▌[/]",  f"[dim]{info_line}[/dim]"),
+        (f"[{C}]    ▀▌[/][{M}]▐▀▀▀[/]",  f"[dim]{captures}[/dim]" if captures else ""),
+        (f"[{M}]     ▐▌[/]",            ""),
     ]
 
-    for i, line in enumerate(lines):
-        info = info_lines[i] if i < len(info_lines) else ""
+    console.print()
+    for creature, info in creature_info:
         if info:
-            console.print(f"[{COLORS['primary']}]{line}[/]     {info}")
+            console.print(f"  {creature}   {info}")
         else:
-            console.print(f"[{COLORS['primary']}]{line}[/]")
+            console.print(f"  {creature}")
+    console.print()
 
 
 def print_header(title: str):

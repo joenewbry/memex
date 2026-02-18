@@ -5,6 +5,7 @@ from rich.console import Console
 
 from cli import __version__
 from cli.display.components import print_logo
+from cli.display.colors import COLORS
 
 app = typer.Typer(
     name="memex",
@@ -36,31 +37,32 @@ def main(
     """Memex - Your digital memory."""
     if ctx.invoked_subcommand is None:
         print_logo()
+        A = COLORS["accent"]
+
+        console.print(f"  [{A}]Track your work[/]")
+        console.print("    status     Quick health check")
+        console.print("    stats      Activity statistics")
+        console.print("    graph      Usage graph (--live to watch)")
+        console.print("    standup    Daily standup summary")
         console.print()
-        console.print("Usage: memex [command] [options]")
+        console.print(f"  [{A}]Search & learn[/]")
+        console.print("    ask        AI-powered search (streaming)")
+        console.print("    chat       Interactive chat with your history")
+        console.print("    search     Direct text search")
         console.print()
-        console.print("Commands:")
-        console.print("  status    Quick health check")
-        console.print("  doctor    Full system diagnostics")
-        console.print("  stats     Activity statistics")
-        console.print("  [bold]graph[/bold]     Usage graph (captures + MCP calls, --live to watch)")
-        console.print("  [bold]chat[/bold]      Interactive chat with Memex")
-        console.print("  [bold]ask[/bold]       AI-powered search (streaming)")
-        console.print("  search    Direct text search")
-        console.print("  start     Start capture daemon")
-        console.print("  stop      Stop capture daemon")
-        console.print("  watch     Live capture view")
-        console.print("  logs      View service logs")
-        console.print("  auth      Manage API keys")
-        console.print("  [bold]standup[/bold]   Daily standup summary")
-        console.print("  [bold]record[/bold]    Audio recording (system + mic)")
-        console.print("  automate  Run automations from markdown")
-        console.print("  config    View/edit settings")
-        console.print("  sync      Sync files to database")
-        console.print("  contact   Contact information")
-        console.print("  help      Extended help")
+        console.print(f"  [{A}]Capture[/]")
+        console.print("    start      Start screen capture")
+        console.print("    stop       Stop capture")
+        console.print("    watch      Live capture view")
         console.print()
-        console.print("Run 'memex <command> --help' for command details.")
+        console.print(f"  [{A}]Manage[/]")
+        console.print("    auth       API keys")
+        console.print("    config     Settings")
+        console.print("    sync       Sync to database")
+        console.print("    logs       Service logs")
+        console.print("    doctor     Full diagnostics")
+        console.print()
+        console.print("  [dim]Run 'memex <command> --help' for details.[/dim]")
 
 
 # Import and register commands

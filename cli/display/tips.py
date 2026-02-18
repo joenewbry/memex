@@ -21,6 +21,11 @@ TIPS = [
     "Use `memex ask` for a one-shot question without entering chat.",
     "Try asking: \"Generate a standup update from my activity.\"",
     "Run `memex sync` if your database feels out of date.",
+    "Ask: \"What did I learn this week?\" for a learning summary.",
+    "Use `memex standup --save` to build a daily work journal.",
+    "Ask: \"What projects did I work on today?\" for portfolio evidence.",
+    "Ask: \"Summarize my debugging sessions this week\" for pattern review.",
+    "Run `memex stats` to see your coding streak.",
 ]
 
 
