@@ -544,14 +544,17 @@ class FlowRunner:
                     # Save screenshot as JPEG (resized)
                     screenshot_path = None
                     try:
+                        # Convert RGBA to RGB (screenshots may have alpha channel)
+                        rgb_image = image.convert("RGB")
+
                         # Resize to max 1280px wide, preserving aspect ratio
                         max_width = 1280
-                        if image.width > max_width:
-                            ratio = max_width / image.width
-                            new_size = (max_width, int(image.height * ratio))
-                            resized = image.resize(new_size, Image.LANCZOS)
+                        if rgb_image.width > max_width:
+                            ratio = max_width / rgb_image.width
+                            new_size = (max_width, int(rgb_image.height * ratio))
+                            resized = rgb_image.resize(new_size, Image.LANCZOS)
                         else:
-                            resized = image
+                            resized = rgb_image
 
                         timestamp_str = timestamp.replace(':', '-').replace('.', '-')
                         img_filename = f"{timestamp_str}_{screen_info.name}.jpg"
