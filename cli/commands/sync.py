@@ -407,10 +407,12 @@ def _flush_multimodal_batch(collection, ids, documents, metadatas, images, has_i
         added = 0
 
         if img_ids:
+            # ChromaDB multimodal: images for embedding, OCR text in metadata
+            for i, meta in enumerate(img_metas):
+                meta["ocr_text"] = img_docs[i]
             collection.add(
                 ids=img_ids,
                 images=img_arrays,
-                documents=img_docs,
                 metadatas=img_metas,
             )
             added += len(img_ids)

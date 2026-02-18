@@ -165,12 +165,14 @@ class ChromaClientManager:
             img = Image.open(image_path).convert("RGB")
             img_array = np.array(img)
 
-            # Add with image for CLIP image embedding
+            # ChromaDB multimodal: use images for embedding, store OCR text in metadata
+            mm_metadata = dict(metadata)
+            mm_metadata["ocr_text"] = ocr_text
+
             collection.add(
                 ids=[doc_id],
                 images=[img_array],
-                documents=[ocr_text],
-                metadatas=[metadata],
+                metadatas=[mm_metadata],
             )
             logger.debug(f"Added multimodal document {doc_id} with image")
 

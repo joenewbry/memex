@@ -226,15 +226,18 @@ class FlowRunner:
                 embedding_function=clip_ef,
             )
 
-            # Load image as numpy array
+            # Load image as numpy array for CLIP image embedding
             img = Image.open(screenshot_path).convert("RGB")
             img_array = np.array(img)
+
+            # ChromaDB multimodal: use images for embedding, store OCR text in metadata
+            mm_metadata = dict(metadata)
+            mm_metadata["ocr_text"] = document
 
             mm_collection.add(
                 ids=[doc_id],
                 images=[img_array],
-                documents=[document],
-                metadatas=[metadata],
+                metadatas=[mm_metadata],
             )
             logger.debug(f"Stored in multimodal collection: {doc_id}")
 
