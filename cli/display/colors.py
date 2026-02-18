@@ -13,9 +13,14 @@ COLORS = {
     "muted": "#6B7280",        # Gray
     "text": "#F3F4F6",         # Light gray
     "dim": "#4B5563",          # Darker gray
-    "creature_body": "#06B6D4", # Cyan-500 (elephant body)
-    "creature_eye": "#FACC15",  # Yellow-400 (elephant eye)
+    "creature_body": "#06B6D4", # Cyan-500 (legacy)
+    "creature_eye": "#FACC15",  # Yellow-400 (legacy)
     "accent": "#A78BFA",        # Violet-400 (group headers)
+    "stone": "#78716C",         # Stone-500 (gate pillars)
+    "rune": "#60A5FA",          # Blue-400 (elven runes)
+    "moon": "#FDE68A",          # Amber-200 (moonlight)
+    "star": "#E2E8F0",          # Slate-200 (stars)
+    "night": "#1E293B",         # Slate-800 (night sky)
 }
 
 # Rich styles

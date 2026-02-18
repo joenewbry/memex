@@ -63,10 +63,9 @@ def _get_instance_info() -> tuple[str, str, str, str]:
 
 
 def print_logo():
-    """Print the Memex elephant creature with version and instance info."""
+    """Print the Gates of Moria at night with version and instance info."""
     hosting, provider, instance, captures = _get_instance_info()
 
-    # Build the info string: "Local · Anthropic · joe"
     info_parts = [hosting]
     if provider:
         info_parts.append(provider)
@@ -74,25 +73,29 @@ def print_logo():
         info_parts.append(instance)
     info_line = " · ".join(info_parts)
 
-    C = COLORS["creature_body"]
-    E = COLORS["creature_eye"]
+    S = COLORS["stone"]
+    R = COLORS["rune"]
+    N = COLORS["moon"]
+    T = COLORS["star"]
     M = COLORS["muted"]
 
-    # Elephant creature lines paired with info lines
-    creature_info = [
-        (f"[{C}]       ▄▄[/]",          ""),
-        (f"[{C}]    ▄▄████[/]",         f"[bold]Memex[/bold] [dim]v{__version__}[/dim]"),
-        (f"[{C}]   ▐[/][{E}]◉[/][{C}]▌████▌[/]",  f"[dim]{info_line}[/dim]"),
-        (f"[{C}]    ▀▌[/][{M}]▐▀▀▀[/]",  f"[dim]{captures}[/dim]" if captures else ""),
-        (f"[{M}]     ▐▌[/]",            ""),
+    # The Gates of Moria under moonlight — the mines are full of treasure
+    gate_info = [
+        (f"[{T}]            ·  ✦     ·[/]",               ""),
+        (f"[{T}]        ·[/]    [{N}]☽[/]    [{T}]·[/]",  ""),
+        (f"[{S}]      ╔══[/][{R}]▲[/][{S}]══════[/][{R}]▲[/][{S}]══╗[/]",  f"[bold]Memex[/bold] [dim]v{__version__}[/dim]"),
+        (f"[{S}]      ║[/]  [{R}]★[/] [{M}]SPEAK[/] [{R}]★[/]  [{S}]║[/]",  f"[dim]{info_line}[/dim]"),
+        (f"[{S}]      ║[/]  [{R}]★[/] [{M}]FRIEND[/] [{R}]★[/] [{S}]║[/]",  f"[dim]{captures}[/dim]" if captures else ""),
+        (f"[{S}]      ║[/]    [{R}]◈[/]      [{S}]║[/]",  ""),
+        (f"[{S}]      ╚════════════╝[/]",                  ""),
     ]
 
     console.print()
-    for creature, info in creature_info:
+    for gate, info in gate_info:
         if info:
-            console.print(f"  {creature}   {info}")
+            console.print(f"  {gate}  {info}")
         else:
-            console.print(f"  {creature}")
+            console.print(f"  {gate}")
     console.print()
 
 
