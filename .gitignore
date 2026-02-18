@@ -12,6 +12,7 @@ Thumbs.db
 .env.local
 .env.production
 .env.staging
+prometheus/config/api_keys.env
 
 
 # Dependencies
@@ -51,6 +52,10 @@ screenhistory/
 *.tmp
 *.temp
 .cache/
+ngrok_logs.txt
+
+# Images
+*.png
 
 # Build outputs
 dist/

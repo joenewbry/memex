@@ -23,7 +23,7 @@ from typing import Any, Dict
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 import uvicorn
 
 # Add server directory to path
@@ -199,9 +199,223 @@ async def health_check():
     }
 
 
+def _parse_metrics() -> Dict[str, Any]:
+    """Parse audit.log and usage.jsonl to build metrics for the dashboard."""
+    metrics = {"source_ips": {}, "mcp_calls": {}, "mcp_calls_by_tool": {}, "daily_trends": {}}
+
+    # Parse audit.log for source IPs
+    audit_path = log_dir / "audit.log"
+    if audit_path.exists():
+        try:
+            lines = audit_path.read_text().strip().split("\n")
+            for line in lines[-5000:]:  # last 5000 lines
+                if "REQUEST " not in line and "TOOL_OK " not in line:
+                    continue
+                parts = {}
+                for token in line.split():
+                    if "=" in token:
+                        k, v = token.split("=", 1)
+                        parts[k] = v
+                ip = parts.get("ip")
+                instance = parts.get("instance")
+                if not ip or ip == "unknown":
+                    continue
+                # Extract timestamp from log line (format: YYYY-MM-DD HH:MM:SS,mmm)
+                ts = line[:23] if len(line) > 23 else ""
+                if ip not in metrics["source_ips"]:
+                    metrics["source_ips"][ip] = {
+                        "request_count": 0, "last_seen": ts, "instances": set()
+                    }
+                metrics["source_ips"][ip]["request_count"] += 1
+                metrics["source_ips"][ip]["last_seen"] = ts
+                if instance:
+                    metrics["source_ips"][ip]["instances"].add(instance)
+        except Exception as e:
+            logger.warning(f"Error parsing audit.log: {e}")
+
+    # Convert sets to lists for JSON serialization
+    for ip_data in metrics["source_ips"].values():
+        ip_data["instances"] = sorted(ip_data["instances"])
+
+    # Parse usage.jsonl for MCP call counts
+    if usage_log_path.exists():
+        try:
+            lines = usage_log_path.read_text().strip().split("\n")
+            for line in lines[-5000:]:
+                try:
+                    event = json.loads(line)
+                except Exception:
+                    continue
+                instance = event.get("instance", "unknown")
+                tool = event.get("tool", "unknown")
+                ts = event.get("ts", "")
+                duration = event.get("duration_ms", 0)
+
+                if instance not in metrics["mcp_calls"]:
+                    metrics["mcp_calls"][instance] = {
+                        "total_calls": 0, "last_call": "", "total_duration_ms": 0
+                    }
+                metrics["mcp_calls"][instance]["total_calls"] += 1
+                metrics["mcp_calls"][instance]["last_call"] = ts
+                metrics["mcp_calls"][instance]["total_duration_ms"] += duration
+
+                tool_key = f"{instance}/{tool}"
+                if tool_key not in metrics["mcp_calls_by_tool"]:
+                    metrics["mcp_calls_by_tool"][tool_key] = 0
+                metrics["mcp_calls_by_tool"][tool_key] += 1
+
+                # Daily trends per instance
+                date = ts[:10] if ts else ""
+                if date:
+                    if instance not in metrics["daily_trends"]:
+                        metrics["daily_trends"][instance] = {}
+                    metrics["daily_trends"][instance][date] = metrics["daily_trends"][instance].get(date, 0) + 1
+        except Exception as e:
+            logger.warning(f"Error parsing usage.jsonl: {e}")
+
+    return metrics
+
+
+@app.get("/api/metrics")
+async def api_metrics():
+    """Aggregated metrics for the dashboard — no auth required."""
+    instances_data = {}
+    if instance_manager:
+        for name in instance_manager.list_instances():
+            inst = instance_manager.get_instance(name)
+            data_size = 0
+            file_count = 0
+            latest_mtime = 0
+            if inst.ocr_data_dir.exists():
+                for entry in os.scandir(inst.ocr_data_dir):
+                    if entry.name.endswith('.json') and entry.is_file(follow_symlinks=False):
+                        try:
+                            stat = entry.stat()
+                            data_size += stat.st_size
+                            file_count += 1
+                            if stat.st_mtime > latest_mtime:
+                                latest_mtime = stat.st_mtime
+                        except OSError:
+                            pass
+            latest_ts = datetime.fromtimestamp(latest_mtime).isoformat() if latest_mtime > 0 else None
+            instances_data[name] = {
+                "ocr_files": file_count,
+                "latest_file": latest_ts,
+                "data_size_bytes": data_size,
+            }
+
+    metrics = _parse_metrics()
+
+    return {
+        "server": {
+            "name": SERVER_NAME,
+            "version": SERVER_VERSION,
+            "timestamp": datetime.now().isoformat(),
+        },
+        "instances": instances_data,
+        "source_ips": metrics["source_ips"],
+        "mcp_calls": metrics["mcp_calls"],
+        "mcp_calls_by_tool": metrics["mcp_calls_by_tool"],
+        "daily_trends": metrics["daily_trends"],
+    }
+
+
+@app.get("/dashboard")
+async def dashboard():
+    """Self-contained HTML dashboard for node monitoring."""
+    html = (Path(__file__).parent / "dashboard.html").read_text()
+    return HTMLResponse(content=html)
+
+
 @app.get("/")
 async def root():
-    """Root endpoint with server information."""
+    """Serve the dashboard at root."""
+    html = (Path(__file__).parent / "dashboard.html").read_text()
+    return HTMLResponse(content=html)
+
+
+@app.get("/api/instance/{name}/detail")
+async def instance_detail(name: str):
+    """Detailed per-instance metrics for the detail page."""
+    if not instance_manager:
+        raise HTTPException(status_code=503, detail="Server not initialized")
+
+    inst = instance_manager.get_instance(name)
+    if not inst:
+        raise HTTPException(status_code=404, detail=f"Unknown instance: {name}")
+
+    # Scan files for data stats
+    data_size = 0
+    file_count = 0
+    latest_mtime = 0
+    oldest_mtime = float('inf')
+    if inst.ocr_data_dir.exists():
+        for entry in os.scandir(inst.ocr_data_dir):
+            if entry.name.endswith('.json') and entry.is_file(follow_symlinks=False):
+                try:
+                    stat = entry.stat()
+                    data_size += stat.st_size
+                    file_count += 1
+                    if stat.st_mtime > latest_mtime:
+                        latest_mtime = stat.st_mtime
+                    if stat.st_mtime < oldest_mtime:
+                        oldest_mtime = stat.st_mtime
+                except OSError:
+                    pass
+
+    # Parse usage.jsonl for this instance
+    daily_calls: Dict[str, int] = {}
+    tool_calls: Dict[str, int] = {}
+    latencies = []
+    if usage_log_path.exists():
+        try:
+            for line in usage_log_path.read_text().strip().split("\n"):
+                try:
+                    event = json.loads(line)
+                except Exception:
+                    continue
+                if event.get("instance") != name:
+                    continue
+                date = event.get("ts", "")[:10]
+                tool = event.get("tool", "unknown")
+                duration = event.get("duration_ms", 0)
+                if date:
+                    daily_calls[date] = daily_calls.get(date, 0) + 1
+                tool_calls[tool] = tool_calls.get(tool, 0) + 1
+                if duration:
+                    latencies.append(duration)
+        except Exception:
+            pass
+
+    sorted_daily = sorted(daily_calls.items())[-30:]
+    avg_latency = int(sum(latencies) / len(latencies)) if latencies else 0
+    sorted_latencies = sorted(latencies)
+    p95_latency = sorted_latencies[int(len(sorted_latencies) * 0.95)] if len(sorted_latencies) > 1 else 0
+
+    return {
+        "instance": name,
+        "data": {
+            "size_bytes": data_size,
+            "file_count": file_count,
+            "oldest": datetime.fromtimestamp(oldest_mtime).isoformat() if oldest_mtime < float('inf') else None,
+            "newest": datetime.fromtimestamp(latest_mtime).isoformat() if latest_mtime > 0 else None,
+        },
+        "usage": {
+            "total_calls": sum(daily_calls.values()),
+            "daily": [{"date": d, "calls": c} for d, c in sorted_daily],
+            "by_tool": dict(sorted(tool_calls.items(), key=lambda x: -x[1])),
+        },
+        "latency": {
+            "avg_ms": avg_latency,
+            "p95_ms": p95_latency,
+            "total_samples": len(latencies),
+        },
+    }
+
+
+@app.get("/api/info")
+async def api_info():
+    """Server information (JSON)."""
     return {
         "name": "Memex Prometheus Server",
         "version": SERVER_VERSION,
