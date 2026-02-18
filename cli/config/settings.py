@@ -26,6 +26,11 @@ class Settings:
     audio_data_path: Path = field(default_factory=lambda: PROJECT_ROOT / "refinery" / "data" / "audio")
     chroma_path: Path = field(default_factory=lambda: PROJECT_ROOT / "refinery" / "chroma")
 
+    # Screenshot storage
+    screenshots_data_path: Path = field(default_factory=lambda: PROJECT_ROOT / "refinery" / "data" / "images")
+    screenshot_max_width: int = 1280
+    screenshot_jpeg_quality: int = 70
+
     # ChromaDB settings
     chroma_host: str = "localhost"
     chroma_port: int = 8000
@@ -33,6 +38,7 @@ class Settings:
     # MCP HTTP server (for Claude/Cursor connection)
     mcp_http_port: int = 8082
     chroma_collection: str = "screen_ocr_history"
+    chroma_multimodal_collection: str = "screen_multimodal"
 
     # Hosting mode (overridden from instance.json if present)
     hosting_mode: HostingMode = "jetson"
@@ -66,6 +72,8 @@ class Settings:
             self.chroma_path = Path(self.chroma_path)
         if isinstance(self.config_dir, str):
             self.config_dir = Path(self.config_dir)
+        if isinstance(self.screenshots_data_path, str):
+            self.screenshots_data_path = Path(self.screenshots_data_path)
 
         # Load instance config and override connection settings
         self._apply_instance_config()

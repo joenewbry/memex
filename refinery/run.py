@@ -37,6 +37,32 @@ from lib.ocr import extract_text, detect_backend, get_backend_info
 
 logger = logging.getLogger(__name__)
 
+# Module-level CLIP embedding function singleton (lazy-loaded, avoids reloading per capture)
+_clip_ef_singleton = None
+_clip_ef_lock = threading.Lock()
+
+
+def _get_clip_ef():
+    """Get or create the singleton CLIP embedding function."""
+    global _clip_ef_singleton
+    if _clip_ef_singleton is not None:
+        return _clip_ef_singleton
+    with _clip_ef_lock:
+        if _clip_ef_singleton is not None:
+            return _clip_ef_singleton
+        try:
+            from chromadb.utils.embedding_functions import OpenCLIPEmbeddingFunction
+            _clip_ef_singleton = OpenCLIPEmbeddingFunction(
+                model_name="ViT-B-32",
+                checkpoint="laion2b_s34b_b79k",
+            )
+            logger.info("CLIP embedding function loaded (ViT-B-32)")
+        except ImportError:
+            logger.debug("OpenCLIP not installed, multimodal features disabled")
+        except Exception as e:
+            logger.warning(f"Failed to load CLIP embedding function: {e}")
+    return _clip_ef_singleton
+
 
 def now() -> datetime:
     """Get current timezone-aware datetime in local timezone."""
@@ -48,6 +74,7 @@ class FlowRunner:
         self.capture_interval = capture_interval  # seconds
         self.max_concurrent_ocr = max_concurrent_ocr
         self.ocr_data_dir = Path("data/ocr")
+        self.screenshots_dir = Path("data/images")
         
         self.is_running = False
         self.processing_queue: List[Dict[str, Any]] = []
@@ -66,46 +93,50 @@ class FlowRunner:
     async def ensure_directories(self):
         """Ensure output directories exist."""
         self.ocr_data_dir.mkdir(parents=True, exist_ok=True)
-        logger.debug(f"Ensured directory exists: {self.ocr_data_dir}")
+        self.screenshots_dir.mkdir(parents=True, exist_ok=True)
+        logger.debug(f"Ensured directories exist: {self.ocr_data_dir}, {self.screenshots_dir}")
     
-    def process_ocr_background(self, image: Image.Image, screen_name: str, timestamp: str):
+    def process_ocr_background(self, image: Image.Image, screen_name: str, timestamp: str, screenshot_path: str = None):
         """Process OCR in background thread."""
         ocr_success = False
         result = None
-        
+
         try:
             logger.info(f"[{timestamp}] Processing OCR on thread {threading.current_thread().ident}")
 
             # Perform OCR (Apple Vision on macOS, Tesseract elsewhere)
             text = extract_text(image)
             text = text.strip()
-            
+
             result = {
                 "screen_name": screen_name,
                 "timestamp": timestamp,
                 "text": text,
                 "text_length": len(text),
                 "word_count": len([word for word in text.split() if word.strip()]),
-                "source": "flow-runner"
+                "source": "flow-runner",
             }
-            
+
+            if screenshot_path:
+                result["screenshot_path"] = screenshot_path
+
             # Save OCR data to JSON file
             timestamp_str = timestamp.replace(':', '-').replace('.', '-')
             ocr_filename = f"{timestamp_str}_{screen_name}.json"
             ocr_filepath = self.ocr_data_dir / ocr_filename
-            
+
             with open(ocr_filepath, 'w', encoding='utf-8') as f:
                 json.dump(result, f, indent=2, ensure_ascii=False)
-            
+
             logger.info(f"[{timestamp}] OCR data saved as {ocr_filename}")
             logger.info(f"[{timestamp}] Screen: {screen_name}, Text: {len(text)} chars, Words: {result['word_count']}")
-            
+
             ocr_success = True
-            
+
         except Exception as error:
             logger.error(f"OCR error for {screen_name}: {error}")
             return  # Exit early if OCR fails
-            
+
         # Try to store in ChromaDB only if OCR was successful
         # This is separate from OCR processing so ChromaDB failures don't affect OCR
         if ocr_success and result:
@@ -120,23 +151,25 @@ class FlowRunner:
             import chromadb
             from chromadb.errors import ChromaError
             import requests.exceptions
-            
+
             # Initialize ChromaDB client
             client = chromadb.HttpClient(host="localhost", port=8000)
-            
+
             # Get or create the screen_ocr_history collection
             collection = client.get_or_create_collection(
                 name="screen_ocr_history",
                 metadata={"description": "Screenshot OCR data"}
             )
-            
+
             # Prepare content for embedding
             content = f"Screen: {ocr_data['screen_name']} Text: {ocr_data['text']}"
-            
+
             # Prepare metadata
             # Convert timestamp to Unix timestamp for ChromaDB filtering
             timestamp_dt = datetime.fromisoformat(ocr_data["timestamp"])
-            
+
+            screenshot_path = ocr_data.get("screenshot_path", "")
+
             metadata = {
                 "timestamp": timestamp_dt.timestamp(),  # Unix timestamp (float) for filtering
                 "timestamp_iso": ocr_data["timestamp"],  # ISO string for display
@@ -146,20 +179,28 @@ class FlowRunner:
                 "source": ocr_data["source"],
                 "extracted_text": ocr_data["text"],
                 "data_type": "ocr",
-                "task_category": "screenshot_ocr"
+                "task_category": "screenshot_ocr",
             }
-            
+
+            if screenshot_path:
+                metadata["screenshot_path"] = screenshot_path
+                metadata["has_screenshot"] = True
+
             # Store in ChromaDB
             doc_id = ocr_data["timestamp"] + "_" + ocr_data["screen_name"]
-            
+
             collection.add(
                 documents=[content],
                 metadatas=[metadata],
                 ids=[doc_id]
             )
-            
+
             logger.debug(f"Stored OCR data in ChromaDB screen_ocr_history collection: {ocr_data['timestamp']}")
-            
+
+            # Also store in multimodal collection if screenshot exists and CLIP is available
+            if screenshot_path:
+                self._store_multimodal_sync(client, doc_id, screenshot_path, content, metadata)
+
         except requests.exceptions.ConnectionError as conn_error:
             # ChromaDB server is not running or not accessible
             raise Exception(f"ChromaDB server connection failed (is server running on localhost:8000?): {conn_error}")
@@ -169,6 +210,36 @@ class FlowRunner:
         except Exception as error:
             # General errors
             raise Exception(f"Unexpected error storing in ChromaDB: {error}")
+
+    def _store_multimodal_sync(self, client, doc_id: str, screenshot_path: str, document: str, metadata: Dict[str, Any]):
+        """Store screenshot in multimodal CLIP collection. Failures are non-fatal."""
+        try:
+            import numpy as np
+
+            clip_ef = _get_clip_ef()
+            if clip_ef is None:
+                return
+
+            mm_collection = client.get_or_create_collection(
+                name="screen_multimodal",
+                metadata={"description": "Multimodal screen captures with CLIP embeddings"},
+                embedding_function=clip_ef,
+            )
+
+            # Load image as numpy array
+            img = Image.open(screenshot_path).convert("RGB")
+            img_array = np.array(img)
+
+            mm_collection.add(
+                ids=[doc_id],
+                images=[img_array],
+                documents=[document],
+                metadatas=[metadata],
+            )
+            logger.debug(f"Stored in multimodal collection: {doc_id}")
+
+        except Exception as error:
+            logger.warning(f"Multimodal storage failed (non-fatal): {error}")
     
     async def store_in_chroma(self, ocr_data: Dict[str, Any]):
         """Store OCR data in ChromaDB collection 'screen_ocr_history'."""
@@ -470,14 +541,35 @@ class FlowRunner:
             # Process each capture
             for screen_info, image in screen_captures:
                 try:
-                    # Start background OCR processing (no screenshot saving)
+                    # Save screenshot as JPEG (resized)
+                    screenshot_path = None
+                    try:
+                        # Resize to max 1280px wide, preserving aspect ratio
+                        max_width = 1280
+                        if image.width > max_width:
+                            ratio = max_width / image.width
+                            new_size = (max_width, int(image.height * ratio))
+                            resized = image.resize(new_size, Image.LANCZOS)
+                        else:
+                            resized = image
+
+                        timestamp_str = timestamp.replace(':', '-').replace('.', '-')
+                        img_filename = f"{timestamp_str}_{screen_info.name}.jpg"
+                        screenshot_path = str(self.screenshots_dir / img_filename)
+                        resized.save(screenshot_path, "JPEG", quality=70)
+                        logger.debug(f"Saved screenshot: {img_filename}")
+                    except Exception as img_error:
+                        logger.warning(f"Failed to save screenshot for {screen_info.name}: {img_error}")
+                        screenshot_path = None
+
+                    # Start background OCR processing
                     ocr_thread = threading.Thread(
                         target=self.process_ocr_background,
-                        args=(image, screen_info.name, timestamp)
+                        args=(image, screen_info.name, timestamp, screenshot_path)
                     )
                     ocr_thread.daemon = True
                     ocr_thread.start()
-                    
+
                 except Exception as error:
                     logger.error(f"Error processing {screen_info.name}: {error}")
                     continue

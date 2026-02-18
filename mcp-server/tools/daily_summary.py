@@ -156,14 +156,22 @@ class DailySummaryTool:
                 if not data:
                     continue
 
-                captures.append({
+                capture_entry = {
                     "timestamp": data.get("timestamp", file_ts.isoformat()),
                     "hour": file_ts.hour,
                     "screen_name": data.get("screen_name", "unknown"),
                     "text_length": data.get("text_length", 0),
                     "word_count": data.get("word_count", 0),
                     "text": data.get("text", ""),
-                })
+                }
+
+                if data.get("screenshot_path"):
+                    capture_entry["screenshot_path"] = data["screenshot_path"]
+                    capture_entry["has_screenshot"] = True
+                else:
+                    capture_entry["has_screenshot"] = False
+
+                captures.append(capture_entry)
 
             # Sort by timestamp
             captures.sort(key=lambda c: c["timestamp"])
@@ -202,6 +210,9 @@ class DailySummaryTool:
                         if len(text) > 500:
                             text = text[:500] + "..."
                         entry["text"] = text
+                    if s.get("screenshot_path"):
+                        entry["screenshot_path"] = s["screenshot_path"]
+                        entry["has_screenshot"] = True
                     sample_data.append(entry)
 
                 periods_output.append({

@@ -145,15 +145,23 @@ class VectorSearchTool:
                         relevance = max(0, 1 - distance)
                         
                         if relevance >= min_relevance:
-                            results.append({
+                            result_entry = {
                                 "text": doc,
                                 "timestamp": metadata.get("timestamp_iso", metadata.get("timestamp", "")),
                                 "screen_name": metadata.get("screen_name", "unknown"),
                                 "relevance_score": round(relevance, 3),
                                 "window_start": window["start"].isoformat(),
                                 "window_end": window["end"].isoformat(),
-                                "window_index": i
-                            })
+                                "window_index": i,
+                            }
+
+                            if metadata.get("screenshot_path"):
+                                result_entry["screenshot_path"] = metadata["screenshot_path"]
+                                result_entry["has_screenshot"] = True
+                            else:
+                                result_entry["has_screenshot"] = False
+
+                            results.append(result_entry)
                     
                 except Exception as e:
                     logger.debug(f"Error querying window {i}: {e}")

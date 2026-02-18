@@ -27,6 +27,7 @@ from mcp.types import (
     ListToolsRequest,
     ListToolsResult,
     TextContent,
+    ImageContent,
     Tool,
     ServerCapabilities,
     ToolsCapability,
@@ -133,6 +134,11 @@ class FlowMCPServer:
                         "type": "string",
                         "enum": ["ocr"],
                         "description": "Filter by data type: 'ocr' for screen OCR only (kept for API compatibility).",
+                    },
+                    "include_images": {
+                        "type": "boolean",
+                        "description": "Include screenshot images in response (base64-encoded, max 5). Default: false.",
+                        "default": False,
                     },
                 },
                 "required": ["query"],
@@ -361,11 +367,39 @@ async def main():
         return await flow_server.list_tools()
     
     @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict) -> List[TextContent]:
+    async def handle_call_tool(name: str, arguments: dict) -> list:
         """Handle call tool request."""
         try:
             result = await flow_server.call_tool(name, arguments)
-            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+            contents = [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+            # Include screenshot images if requested and available
+            if arguments.get("include_images") and isinstance(result, dict):
+                results_list = result.get("results", [])
+                image_count = 0
+                max_images = 5
+
+                for r in results_list:
+                    if image_count >= max_images:
+                        break
+                    screenshot_path = r.get("screenshot_path", "")
+                    if screenshot_path:
+                        try:
+                            import base64
+                            img_path = Path(screenshot_path)
+                            if img_path.exists():
+                                with open(img_path, "rb") as f:
+                                    img_data = base64.standard_b64encode(f.read()).decode("utf-8")
+                                contents.append(ImageContent(
+                                    type="image",
+                                    data=img_data,
+                                    mimeType="image/jpeg",
+                                ))
+                                image_count += 1
+                        except Exception as img_err:
+                            logger.debug(f"Failed to load image {screenshot_path}: {img_err}")
+
+            return contents
         except Exception as e:
             logger.error(f"Error in handle_call_tool: {e}")
             error_result = {"error": str(e), "tool": name}

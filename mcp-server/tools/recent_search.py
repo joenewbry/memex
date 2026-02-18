@@ -182,14 +182,22 @@ class RecentSearchTool:
                             
                             # Only include if meets minimum score
                             if combined_score >= min_score:
-                                all_results.append({
+                                result_entry = {
                                     "text": doc,
                                     "timestamp": timestamp,
                                     "screen_name": metadata.get("screen_name", "unknown"),
                                     "relevance_score": round(relevance, 3),
                                     "recency_score": round(recency, 3),
-                                    "combined_score": round(combined_score, 3)
-                                })
+                                    "combined_score": round(combined_score, 3),
+                                }
+
+                                if metadata.get("screenshot_path"):
+                                    result_entry["screenshot_path"] = metadata["screenshot_path"]
+                                    result_entry["has_screenshot"] = True
+                                else:
+                                    result_entry["has_screenshot"] = False
+
+                                all_results.append(result_entry)
                     
                     # Check if we have enough results
                     if len(all_results) >= max_results:

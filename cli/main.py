@@ -66,7 +66,7 @@ def main(
 
 
 # Import and register commands
-from cli.commands import status, doctor, stats, search, start, stop, watch, sync, config, auth, ask, chat, contact, help_cmd, logs as logs_cmd, standup, automate, graph, record
+from cli.commands import status, doctor, stats, search, start, stop, watch, sync, config, auth, ask, chat, contact, help_cmd, logs as logs_cmd, standup, automate, graph, record, migrate
 
 app.command()(status.status)
 app.command()(doctor.doctor)
@@ -83,6 +83,7 @@ app.command()(sync.sync)
 app.command("logs")(logs_cmd.logs)
 app.command()(standup.standup)
 app.command("graph")(graph.graph)
+app.command()(migrate.migrate)
 app.add_typer(config.app, name="config")
 app.add_typer(auth.app, name="auth")
 app.add_typer(automate.app, name="automate")

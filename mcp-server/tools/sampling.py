@@ -198,7 +198,7 @@ class SamplingTool:
                         if window["data"] is None:  # Take first item in window
                             data = self._read_ocr_file(file_path)
                             if data:
-                                window["data"] = {
+                                entry = {
                                     "timestamp": data.get("timestamp", file_timestamp.isoformat()),
                                     "screen_name": data.get("screen_name", "unknown"),
                                     "text_length": data.get("text_length", 0),
@@ -206,8 +206,16 @@ class SamplingTool:
                                     "text": data.get("text", "") if include_text else None,
                                     "has_content": data.get("text_length", 0) > 10,
                                     "window_start": window["start"].isoformat(),
-                                    "window_end": window["end"].isoformat()
+                                    "window_end": window["end"].isoformat(),
                                 }
+
+                                if data.get("screenshot_path"):
+                                    entry["screenshot_path"] = data["screenshot_path"]
+                                    entry["has_screenshot"] = True
+                                else:
+                                    entry["has_screenshot"] = False
+
+                                window["data"] = entry
                         break
             
             # Extract results

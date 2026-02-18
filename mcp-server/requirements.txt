@@ -22,6 +22,9 @@ asyncio-mqtt>=0.16.2
 # JSON handling
 orjson>=3.9.12
 
+# Image processing
+pillow>=10.0.0
+
 # Markdown processing (for website builder)
 markdown>=3.5.0
 jinja2>=3.1.0

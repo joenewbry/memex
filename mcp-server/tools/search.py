@@ -23,10 +23,11 @@ class SearchTool:
         self.ocr_data_dir = workspace_root / "refinery" / "data" / "ocr"
         self.chroma_client = None
         self.collection = None
-        
+        self.mm_collection = None  # multimodal collection
+
         # Ensure OCR data directory exists
         self.ocr_data_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Try to initialize ChromaDB client
         self._init_chroma()
     
@@ -53,7 +54,14 @@ class SearchTool:
             except Exception as e:
                 logger.warning(f"ChromaDB collection not found: {e}")
                 self.collection = None
-                
+
+            # Try to get multimodal collection
+            try:
+                self.mm_collection = self.chroma_client.get_collection("screen_multimodal")
+                logger.info("Connected to multimodal collection 'screen_multimodal'")
+            except Exception:
+                self.mm_collection = None
+
         except Exception as e:
             logger.error(f"Failed to initialize ChromaDB: {e}")
             self.chroma_client = None
@@ -220,16 +228,24 @@ class SearchTool:
                     # Extract text preview from document or metadata
                     text_preview = metadata.get("extracted_text", doc)[:200]
                     
-                    results.append({
+                    result_entry = {
                         "timestamp": metadata.get("timestamp_iso", metadata.get("timestamp", "")),
                         "screen_name": metadata.get("screen_name", "N/A"),
-                        "data_type": metadata.get("data_type", "unknown"),  # Include data_type tag
+                        "data_type": metadata.get("data_type", "unknown"),
                         "text_length": metadata.get("text_length", 0),
                         "word_count": metadata.get("word_count", 0),
                         "text_preview": text_preview,
                         "relevance": round(relevance, 3),
-                        "source": metadata.get("source", "unknown")
-                    })
+                        "source": metadata.get("source", "unknown"),
+                    }
+
+                    if metadata.get("screenshot_path"):
+                        result_entry["screenshot_path"] = metadata["screenshot_path"]
+                        result_entry["has_screenshot"] = True
+                    else:
+                        result_entry["has_screenshot"] = False
+
+                    results.append(result_entry)
             
             logger.info(f"ChromaDB search completed: {len(results)} results")
             

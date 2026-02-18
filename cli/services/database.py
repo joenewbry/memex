@@ -17,6 +17,7 @@ class SearchResult:
     screen_name: str
     word_count: int
     relevance: float = 0.0
+    screenshot_path: str = ""
 
 
 class DatabaseService:
@@ -131,6 +132,7 @@ class DatabaseService:
                         screen_name=meta.get("screen_name", "unknown"),
                         word_count=meta.get("word_count", 0),
                         relevance=1.0 - distance if distance else 0.0,
+                        screenshot_path=meta.get("screenshot_path", ""),
                     ))
 
             return search_results

@@ -11,6 +11,15 @@ from chromadb.utils import embedding_functions
 
 logger = logging.getLogger(__name__)
 
+# Try to import CLIP embedding function for multimodal support
+_clip_available = False
+try:
+    from chromadb.utils.embedding_functions import OpenCLIPEmbeddingFunction
+    _clip_available = True
+    logger.info("OpenCLIP embedding function available")
+except ImportError:
+    logger.info("OpenCLIP not available - multimodal features disabled")
+
 
 class ChromaClientManager:
     def __init__(self, host: str = "localhost", port: int = 8000, persist_path: str = "data/chroma"):
@@ -20,6 +29,18 @@ class ChromaClientManager:
         self.persist_path = persist_path
         self.collections = {}
         self.embedding_function = embedding_functions.DefaultEmbeddingFunction()
+
+        # CLIP embedding function for multimodal collection
+        self.clip_embedding_function = None
+        if _clip_available:
+            try:
+                self.clip_embedding_function = OpenCLIPEmbeddingFunction(
+                    model_name="ViT-B-32",
+                    checkpoint="laion2b_s34b_b79k",
+                )
+                logger.info("CLIP embedding function initialized (ViT-B-32)")
+            except Exception as e:
+                logger.warning(f"Failed to initialize CLIP embedding function: {e}")
         
     async def init(self):
         """Initialize ChromaDB client and ensure collections exist."""
@@ -54,11 +75,11 @@ class ChromaClientManager:
         default_collections = {
             "screen_ocr_history": "Screen tracking history with timestamps and metadata",
         }
-        
+
         try:
             existing_collections = self.client.list_collections()
             existing_names = [c.name for c in existing_collections]
-            
+
             for name, description in default_collections.items():
                 if name not in existing_names:
                     collection = self.client.create_collection(
@@ -70,9 +91,28 @@ class ChromaClientManager:
                 else:
                     collection = self.client.get_collection(name)
                     logger.debug(f"Using existing collection: {name}")
-                
+
                 self.collections[name] = collection
-                
+
+            # Create multimodal collection if CLIP is available
+            if self.clip_embedding_function:
+                mm_name = "screen_multimodal"
+                if mm_name not in existing_names:
+                    mm_collection = self.client.create_collection(
+                        name=mm_name,
+                        metadata={"description": "Multimodal screen captures with CLIP embeddings"},
+                        embedding_function=self.clip_embedding_function,
+                        data_loader=None,
+                    )
+                    logger.info(f"Created multimodal collection: {mm_name}")
+                else:
+                    mm_collection = self.client.get_collection(
+                        name=mm_name,
+                        embedding_function=self.clip_embedding_function,
+                    )
+                    logger.debug(f"Using existing multimodal collection: {mm_name}")
+                self.collections[mm_name] = mm_collection
+
         except Exception as error:
             logger.error(f"Error ensuring collections: {error}")
             raise
@@ -107,7 +147,37 @@ class ChromaClientManager:
             logger.error(f"Error adding document to {collection_name}: {error}")
             raise
     
-    async def search(self, query: str, collection_name: str = "screen_ocr_history", 
+    async def add_multimodal_document(
+        self, doc_id: str, image_path: str, ocr_text: str, metadata: Dict[str, Any]
+    ):
+        """Add a document with image to the multimodal collection via CLIP."""
+        if not self.clip_embedding_function:
+            logger.debug("CLIP not available, skipping multimodal storage")
+            return
+
+        try:
+            import numpy as np
+            from PIL import Image
+
+            collection = self.get_collection("screen_multimodal")
+
+            # Load image as numpy array for CLIP embedding
+            img = Image.open(image_path).convert("RGB")
+            img_array = np.array(img)
+
+            # Add with image for CLIP image embedding
+            collection.add(
+                ids=[doc_id],
+                images=[img_array],
+                documents=[ocr_text],
+                metadatas=[metadata],
+            )
+            logger.debug(f"Added multimodal document {doc_id} with image")
+
+        except Exception as error:
+            logger.warning(f"Error adding multimodal document {doc_id}: {error}")
+
+    async def search(self, query: str, collection_name: str = "screen_ocr_history",
                     limit: int = 10, filters: Optional[Dict] = None) -> List[Dict]:
         """Search your screen history using vector similarity of OCR data."""
         try:

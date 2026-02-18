@@ -111,16 +111,18 @@ def search(
 
     if json_output:
         import json
-        output = [
-            {
+        output = []
+        for r in results:
+            entry = {
                 "timestamp": r.timestamp.isoformat(),
                 "screen": r.screen_name,
                 "word_count": r.word_count,
                 "text": r.text if full else r.text[:200],
                 "relevance": r.relevance,
             }
-            for r in results
-        ]
+            if r.screenshot_path:
+                entry["screenshot_path"] = r.screenshot_path
+            output.append(entry)
         console.print(json.dumps(output, indent=2))
         return
 
@@ -181,6 +183,9 @@ def search(
             # Clean up whitespace
             snippet = " ".join(snippet.split())
             console.print(f"     {snippet}")
+
+        if result.screenshot_path:
+            console.print(f"     [dim]📷 {result.screenshot_path}[/dim]")
 
         console.print()
 

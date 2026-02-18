@@ -138,7 +138,8 @@ def _cmd_search(query: str):
                 time_str = r.timestamp.strftime("%b %d")
 
             snippet = " ".join(r.text.split())[:80]
-            console.print(f"  [dim]{time_str}[/dim] ({r.screen_name}) {snippet}...")
+            img_flag = " 📷" if r.screenshot_path else ""
+            console.print(f"  [dim]{time_str}[/dim] ({r.screen_name}{img_flag}) {snippet}...")
         console.print()
     except Exception as e:
         console.print(f"  [{COLORS['error']}]Search failed:[/] {e}")
