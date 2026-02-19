@@ -97,7 +97,7 @@ def reindex(instance: str, chroma_host: str = "localhost", chroma_port: int = 80
             with open(f, "r") as fp:
                 data = json.load(fp)
 
-            text = data.get("text", "")
+            text = data.get("text", "") or data.get("extracted_text", "") or data.get("summary", "")
             if not text:
                 continue
 
@@ -167,7 +167,7 @@ def reindex(instance: str, chroma_host: str = "localhost", chroma_port: int = 80
 
 def main():
     parser = argparse.ArgumentParser(description="Reindex OCR files into ChromaDB")
-    parser.add_argument("--instance", required=True, choices=["personal", "walmart", "alaska"],
+    parser.add_argument("--instance", required=True, choices=["joe", "personal", "walmart", "alaska"],
                         help="Instance to reindex")
     parser.add_argument("--chroma-host", default="localhost", help="ChromaDB host")
     parser.add_argument("--chroma-port", type=int, default=8000, help="ChromaDB port")
