@@ -303,17 +303,6 @@
   .chat-send:hover { background: #818cf8; }
   .chat-send:disabled { background: #2a2a50; color: #5a5a78; cursor: not-allowed; }
 
-  .chat-auth-bar {
-    padding: 8px 16px; border-bottom: 1px solid #1a1a2e;
-    display: flex; gap: 8px; align-items: center; flex-shrink: 0;
-  }
-  .chat-auth-input {
-    flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #1a1a2e;
-    background: #0e0e18; color: #c8c8d0; font-family: inherit; font-size: 11px; outline: none;
-  }
-  .chat-auth-input::placeholder { color: #3a3a54; }
-  .chat-auth-label { font-size: 11px; color: #5a5a78; white-space: nowrap; }
-
   @media (max-width: 700px) {
     .instance-grid { grid-template-columns: 1fr; }
     .stats-row { grid-template-columns: repeat(2, 1fr); }
@@ -378,11 +367,6 @@
   <div class="chat-header">
     <span class="chat-header-title" id="chat-title">Chat</span>
     <button class="chat-close" onclick="closeChat()">&#10005;</button>
-  </div>
-  <div class="chat-auth-bar" id="chat-auth-bar">
-    <span class="chat-auth-label">API Key:</span>
-    <input type="password" class="chat-auth-input" id="chat-api-key"
-           placeholder="Bearer token" autocomplete="off">
   </div>
   <div class="chat-messages" id="chat-messages"></div>
   <div class="chat-input-area">
@@ -686,13 +670,6 @@ function openChat(instance, crossInstance) {
   document.getElementById('chat-overlay').classList.add('open');
   document.getElementById('chat-input').focus();
 
-  // Restore API key from localStorage
-  var storedKey = localStorage.getItem('memex_chat_api_key');
-  if (storedKey) {
-    document.getElementById('chat-api-key').value = storedKey;
-    document.getElementById('chat-auth-bar').style.display = 'none';
-  }
-
   // Restore messages from DOM cache if same session
   var key = getChatSessionKey();
   if (!document.getElementById('chat-messages').dataset.sessionKey ||
@@ -704,15 +681,6 @@ function openChat(instance, crossInstance) {
 
 function closeChat() {
   document.getElementById('chat-overlay').classList.remove('open');
-}
-
-function getApiKey() {
-  var key = document.getElementById('chat-api-key').value.trim();
-  if (key) {
-    localStorage.setItem('memex_chat_api_key', key);
-    document.getElementById('chat-auth-bar').style.display = 'none';
-  }
-  return key;
 }
 
 function appendChatMsg(role, html) {
@@ -790,13 +758,6 @@ async function sendChat() {
   var message = input.value.trim();
   if (!message) return;
 
-  var apiKey = getApiKey();
-  if (!apiKey) {
-    document.getElementById('chat-auth-bar').style.display = 'flex';
-    document.getElementById('chat-api-key').focus();
-    return;
-  }
-
   input.value = '';
   appendChatMsg('user', escapeHtml(message));
 
@@ -812,7 +773,6 @@ async function sendChat() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + apiKey,
       },
       body: JSON.stringify({ message: message, session_id: sessionId }),
     });

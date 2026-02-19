@@ -489,21 +489,12 @@ async def serve_screenshot(instance: str, filename: str):
 
 @app.post("/chat")
 async def cross_instance_chat(request: Request):
-    """Cross-instance chat — queries across all instances."""
+    """Cross-instance chat — no auth, tracked via audit log."""
     if not chat_handler:
         raise HTTPException(status_code=503, detail="Chat not initialized")
 
-    # Auth: require master key
-    is_auth, auth_error = auth_manager.authenticate(request, "master")
-    if not is_auth:
-        # Try any instance key as fallback
-        is_auth = False
-        for inst_name in instance_manager.list_instances():
-            is_auth, _ = auth_manager.authenticate(request, inst_name)
-            if is_auth:
-                break
-        if not is_auth:
-            raise HTTPException(status_code=401, detail=auth_error)
+    client_ip = _get_client_ip(request)
+    audit_logger.info(f"CHAT ip={client_ip} instance=cross type=message")
 
     body = await request.json()
     message = body.get("message", "").strip()
@@ -532,9 +523,8 @@ async def instance_chat(instance: str, request: Request):
     if not inst:
         raise HTTPException(status_code=404, detail=f"Unknown instance: {instance}")
 
-    is_auth, auth_error = auth_manager.authenticate(request, instance)
-    if not is_auth:
-        raise HTTPException(status_code=401, detail=auth_error)
+    client_ip = _get_client_ip(request)
+    audit_logger.info(f"CHAT ip={client_ip} instance={instance} type=message")
 
     body = await request.json()
     message = body.get("message", "").strip()
@@ -554,13 +544,9 @@ async def instance_chat(instance: str, request: Request):
 
 @app.delete("/{instance}/chat/{session_id}")
 async def delete_chat_session(instance: str, session_id: str, request: Request):
-    """Delete a chat session."""
+    """Delete a chat session — no auth."""
     if not chat_handler:
         raise HTTPException(status_code=503, detail="Chat not initialized")
-
-    is_auth, auth_error = auth_manager.authenticate(request, instance)
-    if not is_auth:
-        raise HTTPException(status_code=401, detail=auth_error)
 
     if chat_handler.delete_session(session_id):
         return {"status": "deleted", "session_id": session_id}
