@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 import uvicorn
 
@@ -483,6 +484,131 @@ async def serve_screenshot(instance: str, filename: str):
         return FileResponse(img_path, media_type=media, headers={"Cache-Control": "public, max-age=86400"})
 
     raise HTTPException(status_code=404, detail="Screenshot not found")
+
+
+# --- Sync endpoints (for tunnel-based CLI sync) ---
+
+class SyncDocument(BaseModel):
+    id: str
+    text: str
+    metadata: Dict[str, Any]
+    raw_json: Dict[str, Any]
+
+
+class SyncRequest(BaseModel):
+    documents: list[SyncDocument]
+
+
+@app.post("/{instance}/sync")
+async def sync_documents(instance: str, request: Request):
+    """Accept batched OCR documents from CLI sync, write to disk and upsert to ChromaDB."""
+    if not instance_manager or not auth_manager:
+        raise HTTPException(status_code=503, detail="Server not initialized")
+
+    inst = instance_manager.get_instance(instance)
+    if not inst:
+        raise HTTPException(status_code=404, detail=f"Unknown instance: {instance}")
+
+    # Auth required
+    is_auth, auth_error = auth_manager.authenticate(request, instance)
+    if not is_auth:
+        client_ip = _get_client_ip(request)
+        audit_logger.info(f"AUTH_FAIL instance={instance} ip={client_ip} endpoint=sync error={auth_error}")
+        raise HTTPException(status_code=401, detail=auth_error)
+
+    try:
+        body = await request.json()
+        sync_req = SyncRequest(**body)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid request body: {e}")
+
+    client_ip = _get_client_ip(request)
+    audit_logger.info(f"SYNC instance={instance} ip={client_ip} documents={len(sync_req.documents)}")
+
+    # Ensure OCR data directory exists
+    inst.ocr_data_dir.mkdir(parents=True, exist_ok=True)
+
+    written = 0
+    indexed = 0
+    errors = []
+
+    # Write raw JSON files to disk
+    for doc in sync_req.documents:
+        try:
+            file_path = inst.ocr_data_dir / f"{doc.id}.json"
+            with open(file_path, "w") as f:
+                json.dump(doc.raw_json, f, indent=2)
+            written += 1
+        except Exception as e:
+            errors.append(f"write {doc.id}: {e}")
+
+    # Batch upsert to ChromaDB
+    if sync_req.documents:
+        try:
+            collection = inst.get_chroma_collection()
+            batch_ids = []
+            batch_documents = []
+            batch_metadatas = []
+
+            for doc in sync_req.documents:
+                if not doc.text.strip():
+                    continue
+                batch_ids.append(doc.id)
+                batch_documents.append(doc.text)
+                # ChromaDB metadata must be flat (str/int/float/bool)
+                meta = {}
+                for k, v in doc.metadata.items():
+                    if isinstance(v, (str, int, float, bool)):
+                        meta[k] = v
+                batch_metadatas.append(meta)
+
+            if batch_ids:
+                collection.upsert(
+                    ids=batch_ids,
+                    documents=batch_documents,
+                    metadatas=batch_metadatas,
+                )
+                indexed = len(batch_ids)
+        except Exception as e:
+            errors.append(f"chromadb upsert: {e}")
+
+    logger.info(f"SYNC_COMPLETE instance={instance} written={written} indexed={indexed} errors={len(errors)}")
+
+    return {
+        "status": "ok",
+        "written": written,
+        "indexed": indexed,
+        "errors": errors[:10],  # Cap error detail
+    }
+
+
+@app.get("/{instance}/sync/status")
+async def sync_status(instance: str, request: Request):
+    """Return count and list of document IDs already on the server (for diffing)."""
+    if not instance_manager or not auth_manager:
+        raise HTTPException(status_code=503, detail="Server not initialized")
+
+    inst = instance_manager.get_instance(instance)
+    if not inst:
+        raise HTTPException(status_code=404, detail=f"Unknown instance: {instance}")
+
+    # Auth required
+    is_auth, auth_error = auth_manager.authenticate(request, instance)
+    if not is_auth:
+        raise HTTPException(status_code=401, detail=auth_error)
+
+    # Get IDs from disk (source of truth)
+    disk_ids = set()
+    if inst.ocr_data_dir.exists():
+        for entry in os.scandir(inst.ocr_data_dir):
+            if entry.name.endswith(".json") and entry.is_file(follow_symlinks=False):
+                disk_ids.add(entry.name[:-5])  # strip .json
+
+    return {
+        "instance": instance,
+        "count": len(disk_ids),
+        "ids": sorted(disk_ids),
+    }
 
 
 # --- Chat endpoints ---

@@ -41,6 +41,20 @@ class MemexInstance:
         self.config = config
         self.name = config.name
         self.ocr_data_dir = config.data_dir / "ocr"
+        self._chroma_collection = None
+
+    def get_chroma_collection(self):
+        """Get the ChromaDB collection for this instance (lazy-initialized)."""
+        if self._chroma_collection is None:
+            import chromadb
+            client = chromadb.HttpClient(
+                host=self.config.chroma_host,
+                port=self.config.chroma_port,
+            )
+            self._chroma_collection = client.get_or_create_collection(
+                name=self.config.chroma_collection,
+            )
+        return self._chroma_collection
 
         tool_kwargs = {
             "ocr_data_dir": self.ocr_data_dir,

@@ -129,3 +129,29 @@ def get_default_provider() -> Optional[str]:
     # Fall back to any configured provider
     configured = get_configured_providers()
     return configured[0] if configured else None
+
+
+def get_prometheus_token() -> Optional[str]:
+    """Get Prometheus API token for tunnel sync.
+
+    Checks in order:
+    1. MEMEX_PROMETHEUS_TOKEN environment variable
+    2. credentials.json "prometheus" key
+    """
+    # Check environment first
+    token = os.environ.get("MEMEX_PROMETHEUS_TOKEN")
+    if token:
+        return token
+
+    # Check credentials file
+    creds_path = get_credentials_path()
+    if creds_path.exists():
+        try:
+            with open(creds_path, "r") as f:
+                creds = json.load(f)
+                if "prometheus" in creds:
+                    return creds["prometheus"].get("api_key")
+        except Exception:
+            pass
+
+    return None
