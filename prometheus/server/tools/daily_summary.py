@@ -123,6 +123,7 @@ class DailySummaryTool:
                     "text_length": data.get("text_length", 0),
                     "word_count": data.get("word_count", 0),
                     "text": data.get("text", ""),
+                    "screenshot_path": data.get("screenshot_path", ""),
                 })
 
             captures.sort(key=lambda c: c["timestamp"])
@@ -155,6 +156,10 @@ class DailySummaryTool:
                         if len(text) > 500:
                             text = text[:500] + "..."
                         entry["text"] = text
+                    screenshot_path = s.get("screenshot_path", "")
+                    if screenshot_path:
+                        entry["screenshot_path"] = screenshot_path
+                        entry["has_screenshot"] = True
                     sample_data.append(entry)
                 periods_output.append({
                     "period": label,

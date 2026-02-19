@@ -23,7 +23,8 @@ from typing import Any, Dict
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from starlette.responses import StreamingResponse
 import uvicorn
 
 # Add server directory to path
@@ -33,6 +34,7 @@ from instance_manager import InstanceManager
 from auth import AuthManager
 from rate_limiter import RateLimiter
 from ai_validator import AIValidator
+from chat_handler import ChatHandler
 
 # Load configuration
 config_dir = Path("/ssd/memex/config")
@@ -112,6 +114,7 @@ OLLAMA_TIMEOUT = float(os.environ.get("OLLAMA_TIMEOUT", "2.0"))
 API_KEYS_PATH = os.environ.get("API_KEYS_PATH", "/ssd/memex/config/api_keys.env")
 SECURITY_POLICY_PATH = os.environ.get("SECURITY_POLICY_PATH", "/ssd/memex/config/security-policy.md")
 INSTANCES = os.environ.get("INSTANCES", "personal,walmart,alaska").split(",")
+PAGES_DIR = os.environ.get("PAGES_DIR", "/ssd/memex/pages")
 
 # Initialize components
 app = FastAPI(title="Memex Prometheus Server", version=SERVER_VERSION)
@@ -121,6 +124,7 @@ instance_manager = None
 auth_manager = None
 rate_limiter = None
 ai_validator = None
+chat_handler = None
 sessions = {}
 
 
@@ -138,7 +142,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     """Initialize all components on startup."""
-    global instance_manager, auth_manager, rate_limiter, ai_validator
+    global instance_manager, auth_manager, rate_limiter, ai_validator, chat_handler
 
     logger.info("Starting Memex Prometheus Server...")
     logger.info(f"Instances: {INSTANCES}")
@@ -165,6 +169,11 @@ async def startup_event():
         ollama_model=OLLAMA_MODEL,
         policy_path=SECURITY_POLICY_PATH,
         timeout=OLLAMA_TIMEOUT,
+    )
+
+    chat_handler = ChatHandler(
+        instance_manager=instance_manager,
+        pages_dir=PAGES_DIR,
     )
 
     logger.info("Memex Prometheus Server initialized successfully")
@@ -423,6 +432,139 @@ async def api_info():
         "protocolVersion": PROTOCOL_VERSION,
         "instances": instance_manager.list_instances() if instance_manager else [],
     }
+
+
+# --- Pages endpoint (static, no auth) ---
+
+@app.get("/pages/{slug}")
+async def serve_page(slug: str):
+    """Serve a generated page by slug."""
+    # Sanitize slug to prevent path traversal
+    safe_slug = Path(slug).name
+    if safe_slug != slug or ".." in slug:
+        raise HTTPException(status_code=400, detail="Invalid slug")
+    page_path = Path(PAGES_DIR) / f"{safe_slug}.html"
+    if not page_path.exists():
+        raise HTTPException(status_code=404, detail="Page not found")
+    return HTMLResponse(content=page_path.read_text())
+
+
+@app.get("/api/pages")
+async def list_pages():
+    """List all generated pages."""
+    pages_path = Path(PAGES_DIR)
+    if not pages_path.exists():
+        return {"pages": []}
+    pages = []
+    for f in sorted(pages_path.glob("*.html"), key=lambda p: p.stat().st_mtime, reverse=True):
+        pages.append({
+            "slug": f.stem,
+            "url": f"/pages/{f.stem}",
+            "size_bytes": f.stat().st_size,
+            "created": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+        })
+    return {"pages": pages}
+
+
+# --- Screenshots endpoint ---
+
+@app.get("/screenshots/{instance}/{filename}")
+async def serve_screenshot(instance: str, filename: str):
+    """Serve a screenshot image for a given instance."""
+    # Sanitize to prevent path traversal
+    safe_filename = Path(filename).name
+    if safe_filename != filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    # Check images directory under instance data dir
+    img_path = Path(DATA_BASE_DIR) / instance / "images" / safe_filename
+    if img_path.exists() and img_path.is_file():
+        media = "image/jpeg" if safe_filename.endswith(".jpg") else "image/png"
+        return FileResponse(img_path, media_type=media, headers={"Cache-Control": "public, max-age=86400"})
+
+    raise HTTPException(status_code=404, detail="Screenshot not found")
+
+
+# --- Chat endpoints ---
+
+@app.post("/chat")
+async def cross_instance_chat(request: Request):
+    """Cross-instance chat — queries across all instances."""
+    if not chat_handler:
+        raise HTTPException(status_code=503, detail="Chat not initialized")
+
+    # Auth: require master key
+    is_auth, auth_error = auth_manager.authenticate(request, "master")
+    if not is_auth:
+        # Try any instance key as fallback
+        is_auth = False
+        for inst_name in instance_manager.list_instances():
+            is_auth, _ = auth_manager.authenticate(request, inst_name)
+            if is_auth:
+                break
+        if not is_auth:
+            raise HTTPException(status_code=401, detail=auth_error)
+
+    body = await request.json()
+    message = body.get("message", "").strip()
+    session_id = body.get("session_id")
+    if not message:
+        raise HTTPException(status_code=400, detail="Message required")
+
+    first_instance = instance_manager.list_instances()[0]
+    session = chat_handler.get_or_create_session(session_id, first_instance)
+
+    async def event_stream():
+        yield f"event: session\ndata: {json.dumps({'session_id': session.id})}\n\n"
+        async for event in chat_handler.chat(session, message, cross_instance=True):
+            yield event
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/{instance}/chat")
+async def instance_chat(instance: str, request: Request):
+    """Chat with a specific instance's Memex data."""
+    if not chat_handler or not instance_manager:
+        raise HTTPException(status_code=503, detail="Server not initialized")
+
+    inst = instance_manager.get_instance(instance)
+    if not inst:
+        raise HTTPException(status_code=404, detail=f"Unknown instance: {instance}")
+
+    is_auth, auth_error = auth_manager.authenticate(request, instance)
+    if not is_auth:
+        raise HTTPException(status_code=401, detail=auth_error)
+
+    body = await request.json()
+    message = body.get("message", "").strip()
+    session_id = body.get("session_id")
+    if not message:
+        raise HTTPException(status_code=400, detail="Message required")
+
+    session = chat_handler.get_or_create_session(session_id, instance)
+
+    async def event_stream():
+        yield f"event: session\ndata: {json.dumps({'session_id': session.id})}\n\n"
+        async for event in chat_handler.chat(session, message, cross_instance=False):
+            yield event
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.delete("/{instance}/chat/{session_id}")
+async def delete_chat_session(instance: str, session_id: str, request: Request):
+    """Delete a chat session."""
+    if not chat_handler:
+        raise HTTPException(status_code=503, detail="Chat not initialized")
+
+    is_auth, auth_error = auth_manager.authenticate(request, instance)
+    if not is_auth:
+        raise HTTPException(status_code=401, detail=auth_error)
+
+    if chat_handler.delete_session(session_id):
+        return {"status": "deleted", "session_id": session_id}
+    raise HTTPException(status_code=404, detail="Session not found")
 
 
 # --- MCP endpoint with path-based routing ---

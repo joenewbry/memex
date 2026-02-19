@@ -80,6 +80,7 @@ class VectorSearchTool:
                         distance = window_results["distances"][0][0] if window_results["distances"] else 1.0
                         relevance = max(0, 1 - distance)
                         if relevance >= min_relevance:
+                            screenshot_path = metadata.get("screenshot_path", "")
                             results.append({
                                 "text": doc,
                                 "timestamp": metadata.get("timestamp_iso", metadata.get("timestamp", "")),
@@ -88,6 +89,8 @@ class VectorSearchTool:
                                 "window_start": window["start"].isoformat(),
                                 "window_end": window["end"].isoformat(),
                                 "window_index": i,
+                                "screenshot_path": screenshot_path,
+                                "has_screenshot": bool(screenshot_path),
                             })
                 except Exception as e:
                     logger.debug(f"Error querying window {i}: {e}")

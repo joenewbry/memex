@@ -85,6 +85,7 @@ class RecentSearchTool:
                             recency = self._calculate_recency_score(timestamp, max_days)
                             combined_score = (relevance * relevance_weight) + (recency * recency_weight)
                             if combined_score >= min_score:
+                                screenshot_path = metadata.get("screenshot_path", "")
                                 all_results.append({
                                     "text": doc,
                                     "timestamp": timestamp,
@@ -92,6 +93,8 @@ class RecentSearchTool:
                                     "relevance_score": round(relevance, 3),
                                     "recency_score": round(recency, 3),
                                     "combined_score": round(combined_score, 3),
+                                    "screenshot_path": screenshot_path,
+                                    "has_screenshot": bool(screenshot_path),
                                 })
                     if len(all_results) >= max_results:
                         break

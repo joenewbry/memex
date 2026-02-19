@@ -146,6 +146,7 @@ class SearchTool:
                     distance = query_results["distances"][0][i] if query_results["distances"] else 1.0
                     relevance = max(0, 1 - distance)
                     text_preview = metadata.get("extracted_text", doc)[:200]
+                    screenshot_path = metadata.get("screenshot_path", "")
                     results.append({
                         "timestamp": metadata.get("timestamp_iso", metadata.get("timestamp", "")),
                         "screen_name": metadata.get("screen_name", "N/A"),
@@ -155,6 +156,8 @@ class SearchTool:
                         "text_preview": text_preview,
                         "relevance": round(relevance, 3),
                         "source": metadata.get("source", "unknown"),
+                        "screenshot_path": screenshot_path,
+                        "has_screenshot": bool(screenshot_path),
                     })
 
             return {
@@ -206,6 +209,7 @@ class SearchTool:
                         start = max(0, idx - context_size)
                         end = min(len(text), idx + len(query) + context_size)
                         preview = ("..." if start > 0 else "") + text_lower[start:end] + ("..." if end < len(text) else "")
+                        screenshot_path = data.get("screenshot_path", "")
                         results.append({
                             "timestamp": data.get("timestamp"),
                             "screen_name": data.get("screen_name", "N/A"),
@@ -215,6 +219,8 @@ class SearchTool:
                             "text_preview": preview,
                             "relevance": relevance,
                             "source": "file_based_search",
+                            "screenshot_path": screenshot_path,
+                            "has_screenshot": bool(screenshot_path),
                         })
                 except Exception:
                     continue
