@@ -593,8 +593,33 @@ class FlowRunner:
             
             await self.ensure_directories()
             
-            # Initialize ChromaDB
-            await chroma_client.init()
+            # Configure ChromaDB host from instance.json if present
+            _skip_chroma = False
+            try:
+                import json as _json
+                _inst_path = Path.home() / ".memex" / "instance.json"
+                if _inst_path.exists():
+                    with open(_inst_path) as _f:
+                        _inst = _json.load(_f)
+                    if _inst.get("hosting_mode") == "jetson":
+                        _host = _inst.get("jetson_host", "")
+                        _port = _inst.get("jetson_chroma_port", 8000)
+                        if _host:
+                            chroma_client.host = _host
+                            chroma_client.port = _port
+                            logger.info(f"ChromaDB target from instance.json: {_host}:{_port}")
+            except Exception as e:
+                logger.warning(f"Could not load instance.json: {e}")
+
+            # Initialize ChromaDB (non-fatal — capture works without it)
+            try:
+                await chroma_client.init()
+                # Load existing OCR data into ChromaDB
+                await self.load_existing_ocr_data()
+            except Exception as e:
+                logger.warning(f"ChromaDB unavailable, capture-only mode: {e}")
+                _skip_chroma = True
+            self._skip_chroma = _skip_chroma
             
             # Load existing OCR data into ChromaDB
             await self.load_existing_ocr_data()
