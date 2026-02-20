@@ -68,7 +68,7 @@
   .instance-card[data-color="rose"]::before { background: linear-gradient(90deg, #f43f5e, #fb7185); }
 
   .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-  .card-name { font-size: 18px; font-weight: 700; color: #e8e8f0; text-transform: capitalize; }
+  .card-name { font-size: 18px; font-weight: 700; color: #e8e8f0; }
   .card-status {
     width: 10px; height: 10px; border-radius: 50%;
     background: #4ade80; box-shadow: 0 0 8px #4ade8066;
@@ -106,7 +106,7 @@
   .detail-header {
     display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;
   }
-  .detail-name { font-size: 28px; font-weight: 700; color: #e8e8f0; text-transform: capitalize; }
+  .detail-name { font-size: 28px; font-weight: 700; color: #e8e8f0; }
 
   .stats-row {
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 40px;
@@ -185,8 +185,24 @@
   /* Footer */
   footer {
     margin-top: 48px; padding-top: 16px; border-top: 1px solid #141420;
-    display: flex; justify-content: space-between; font-size: 11px; color: #2a2a40;
+    font-size: 11px; color: #2a2a40;
+    display: flex; flex-direction: column; gap: 12px;
   }
+  .footer-row {
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .status-legend {
+    display: flex; gap: 16px; align-items: center;
+  }
+  .status-legend-item {
+    display: flex; align-items: center; gap: 5px;
+  }
+  .status-legend-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+  .status-legend-dot.active { background: #4ade80; box-shadow: 0 0 6px #4ade8044; }
+  .status-legend-dot.stale { background: #fbbf24; box-shadow: 0 0 6px #fbbf2444; }
+  .status-legend-dot.inactive { background: #525268; }
 
   /* Error banner */
   #error-banner {
@@ -357,8 +373,17 @@
   </div>
 
   <footer>
-    <span>Memex Prometheus <span id="version-text"></span></span>
-    <span id="updated-text"></span>
+    <div class="footer-row">
+      <span>Memex Prometheus <span id="version-text"></span></span>
+      <span id="updated-text"></span>
+    </div>
+    <div class="footer-row">
+      <div class="status-legend">
+        <div class="status-legend-item"><span class="status-legend-dot active"></span> Active — data received in last hour</div>
+        <div class="status-legend-item"><span class="status-legend-dot stale"></span> Stale — no data in 1-24 hours</div>
+        <div class="status-legend-item"><span class="status-legend-dot inactive"></span> Inactive — no data in 24+ hours</div>
+      </div>
+    </div>
   </footer>
 </div>
 
@@ -381,6 +406,8 @@
 const REFRESH_MS = 30000;
 const COLORS = ['indigo', 'emerald', 'amber', 'rose'];
 const COLOR_HEX = { indigo: '#6366f1', emerald: '#10b981', amber: '#f59e0b', rose: '#f43f5e' };
+const DISPLAY_NAMES = { alaska: 'Alaska Airlines', joe: 'Joe', walmart: 'Walmart', personal: 'Personal' };
+function displayName(name) { return DISPLAY_NAMES[name] || name.charAt(0).toUpperCase() + name.slice(1); }
 let countdown = REFRESH_MS / 1000;
 let timerInterval;
 let currentView = 'main';
@@ -493,7 +520,7 @@ async function fetchAndRenderMain() {
       card.onclick = function() { showDetail(name); };
 
       card.innerHTML = '<div class="card-top">' +
-        '<span class="card-name">' + name + '</span>' +
+        '<span class="card-name">' + displayName(name) + '</span>' +
         '<span class="card-status ' + status + '"></span>' +
         '</div>' +
         '<div class="card-metric">' +
@@ -528,7 +555,7 @@ async function showDetail(name) {
   currentInstance = name;
   document.getElementById('main-view').style.display = 'none';
   document.getElementById('detail-view').style.display = 'block';
-  document.getElementById('detail-name').textContent = name;
+  document.getElementById('detail-name').textContent = displayName(name);
   location.hash = '/instance/' + name;
 
   // Show loading state
@@ -665,7 +692,7 @@ function getChatSessionKey() {
 function openChat(instance, crossInstance) {
   chatInstance = instance;
   chatCrossInstance = crossInstance;
-  var title = crossInstance ? 'Chat — All Instances' : 'Chat — ' + (instance || '');
+  var title = crossInstance ? 'Chat — All Instances' : 'Chat — ' + displayName(instance || '');
   document.getElementById('chat-title').textContent = title;
   document.getElementById('chat-overlay').classList.add('open');
   document.getElementById('chat-input').focus();
