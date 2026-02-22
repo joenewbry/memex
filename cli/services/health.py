@@ -153,15 +153,16 @@ class HealthService:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(2)
-            result = sock.connect_ex(("localhost", port))
+            host = self.settings.chroma_host
+            result = sock.connect_ex((host, port))
             sock.close()
             if result == 0:
                 return ServiceCheck(
                     "MCP HTTP Server",
                     True,
-                    f"Running on port {port}",
+                    f"Running on {host}:{port}",
                 )
-            return ServiceCheck("MCP HTTP Server", False, f"Not running (port {port})")
+            return ServiceCheck("MCP HTTP Server", False, f"Not running ({host}:{port})")
         except Exception as e:
             return ServiceCheck("MCP HTTP Server", False, str(e))
 
