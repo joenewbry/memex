@@ -16,10 +16,12 @@ class CaptureService:
     def __init__(self):
         self.settings = get_settings()
         self.run_script = self.settings.refinery_path / "run.py"
-        # Install layout: ~/.memex/.venv; repo: refinery/.venv
+        # Search order: repo root .venv, refinery .venv, install layout ~/.memex/.venv
         venv = self.settings.project_root / ".venv" / "bin" / "python"
         if not venv.exists():
             venv = self.settings.refinery_path / ".venv" / "bin" / "python"
+        if not venv.exists():
+            venv = Path.home() / ".memex" / ".venv" / "bin" / "python"
         self.venv_python = venv
 
     def is_running(self) -> tuple[bool, Optional[int]]:

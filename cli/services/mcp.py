@@ -57,6 +57,8 @@ class MCPService:
                 venv_python = self.settings.mcp_server_path / ".venv" / "bin" / "python"
             if not venv_python.exists():
                 venv_python = self.settings.refinery_path / ".venv" / "bin" / "python"
+            if not venv_python.exists():
+                venv_python = Path.home() / ".memex" / ".venv" / "bin" / "python"
             python_path = str(venv_python) if venv_python.exists() else "python3"
             cmd = [python_path, str(self.http_server), "--port", str(self.settings.mcp_http_port)]
 
