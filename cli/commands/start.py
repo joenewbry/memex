@@ -324,12 +324,16 @@ def start(
             console.print()
             return
 
-    # Ask about MCP server if not specified
+    # Determine whether to start a local MCP server
     start_mcp = mcp
     if mcp is None:
-        console.print(f"  Start MCP server for connecting Memex to Claude or other tools? (port {settings.mcp_http_port})")
-        start_mcp = Confirm.ask("  Start MCP server?", default=False)
-        console.print()
+        if mode == "local":
+            console.print(f"  Start MCP server for connecting Memex to Claude or other tools? (port {settings.mcp_http_port})")
+            start_mcp = Confirm.ask("  Start MCP server?", default=False)
+            console.print()
+        else:
+            # Jetson/remote modes: MCP server runs on the remote host, not locally
+            start_mcp = False
 
     # Check if already running - stop it so we can restart fresh
     running, pid = capture.is_running()
