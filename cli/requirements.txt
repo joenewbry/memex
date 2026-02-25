@@ -2,7 +2,7 @@
 typer[all]>=0.9.0
 rich>=13.0.0
 humanize>=4.0.0
-chromadb>=0.4.0
+chromadb>=0.4.22,<0.5.0
 
 # AI providers (optional - install the one you use)
 anthropic>=0.18.0

@@ -44,7 +44,7 @@ class Settings:
     hosting_mode: HostingMode = "jetson"
 
     # Capture settings
-    capture_interval: int = 60  # seconds
+    capture_interval: int = 30  # seconds
     audio_rotation_interval: int = 300  # seconds
 
     # AI settings
@@ -92,6 +92,11 @@ class Settings:
 
         mode = data.get("hosting_mode", "jetson")
         self.hosting_mode = mode
+
+        # Derive collection name from instance name
+        instance_name = data.get("instance_name", "")
+        if instance_name:
+            self.chroma_collection = f"{instance_name}_ocr_history"
 
         if mode == "jetson":
             jetson_host = data.get("jetson_host", "")

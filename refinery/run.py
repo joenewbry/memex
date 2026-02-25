@@ -13,7 +13,7 @@ Screen Naming Convention:
 Screenshot files are saved as: {timestamp}_{screen_name}.png
 OCR data files are saved as: {timestamp}_{screen_name}.json
 
-All data is stored in ChromaDB collection "screen_ocr_history" for search and analysis.
+All data is stored in a ChromaDB collection derived from instance config for search and analysis.
 """
 
 import asyncio
@@ -70,16 +70,19 @@ def now() -> datetime:
 
 
 class FlowRunner:
-    def __init__(self, capture_interval: int = 60, max_concurrent_ocr: int = 4):
+    def __init__(self, capture_interval: int = 30, max_concurrent_ocr: int = 4):
         self.capture_interval = capture_interval  # seconds
         self.max_concurrent_ocr = max_concurrent_ocr
         self.ocr_data_dir = Path("data/ocr")
         self.screenshots_dir = Path("data/images")
-        
+
         self.is_running = False
         self.processing_queue: List[Dict[str, Any]] = []
         self._semaphore = asyncio.Semaphore(max_concurrent_ocr)
-        
+
+        # Resolve collection name from instance config
+        self._collection_name = self._resolve_collection_name()
+
         # Detect OCR backend (Apple Vision on macOS, Tesseract elsewhere)
         backend = detect_backend()
         backend_info = get_backend_info()
@@ -90,6 +93,22 @@ class FlowRunner:
         self.ocr_queue = []
         self.ocr_lock = threading.Lock()
     
+    def _resolve_collection_name(self) -> str:
+        """Derive ChromaDB collection name from instance config."""
+        try:
+            inst_path = Path.home() / ".memex" / "instance.json"
+            if inst_path.exists():
+                with open(inst_path) as f:
+                    data = json.load(f)
+                instance_name = data.get("instance_name", "")
+                if instance_name:
+                    name = f"{instance_name}_ocr_history"
+                    logger.info(f"Collection name from instance config: {name}")
+                    return name
+        except Exception as e:
+            logger.warning(f"Could not read instance config for collection name: {e}")
+        return "screen_ocr_history"
+
     async def ensure_directories(self):
         """Ensure output directories exist."""
         self.ocr_data_dir.mkdir(parents=True, exist_ok=True)
@@ -146,18 +165,18 @@ class FlowRunner:
                 logger.warning(f"[{timestamp}] ChromaDB storage failed for {screen_name}, but OCR data was saved: {chroma_error}")
     
     def store_in_chroma_sync(self, ocr_data: Dict[str, Any]):
-        """Store OCR data in ChromaDB collection 'screen_ocr_history' (synchronous version for background threads)."""
+        """Store OCR data in ChromaDB (synchronous version for background threads)."""
         try:
             import chromadb
             from chromadb.errors import ChromaError
             import requests.exceptions
 
-            # Initialize ChromaDB client
-            client = chromadb.HttpClient(host="localhost", port=8000)
+            # Use the shared chroma_client's host/port (configured from instance.json)
+            client = chromadb.HttpClient(host=chroma_client.host, port=chroma_client.port)
 
-            # Get or create the screen_ocr_history collection
+            # Get or create the instance-specific collection
             collection = client.get_or_create_collection(
-                name="screen_ocr_history",
+                name=self._collection_name,
                 metadata={"description": "Screenshot OCR data"}
             )
 
@@ -195,7 +214,7 @@ class FlowRunner:
                 ids=[doc_id]
             )
 
-            logger.debug(f"Stored OCR data in ChromaDB screen_ocr_history collection: {ocr_data['timestamp']}")
+            logger.debug(f"Stored OCR data in ChromaDB {self._collection_name} collection: {ocr_data['timestamp']}")
 
             # Also store in multimodal collection if screenshot exists and CLIP is available
             if screenshot_path:
@@ -203,7 +222,7 @@ class FlowRunner:
 
         except requests.exceptions.ConnectionError as conn_error:
             # ChromaDB server is not running or not accessible
-            raise Exception(f"ChromaDB server connection failed (is server running on localhost:8000?): {conn_error}")
+            raise Exception(f"ChromaDB server connection failed (is server running on {chroma_client.host}:{chroma_client.port}?): {conn_error}")
         except ChromaError as chroma_error:
             # ChromaDB-specific errors
             raise Exception(f"ChromaDB operation failed: {chroma_error}")
@@ -245,15 +264,15 @@ class FlowRunner:
             logger.warning(f"Multimodal storage failed (non-fatal): {error}")
     
     async def store_in_chroma(self, ocr_data: Dict[str, Any]):
-        """Store OCR data in ChromaDB collection 'screen_ocr_history'."""
+        """Store OCR data in ChromaDB."""
         try:
             # Prepare content for embedding
             content = f"Screen: {ocr_data['screen_name']} Text: {ocr_data['text']}"
-            
+
             # Prepare metadata
             # Convert timestamp to Unix timestamp for ChromaDB filtering
             timestamp_dt = datetime.fromisoformat(ocr_data["timestamp"])
-            
+
             metadata = {
                 "timestamp": timestamp_dt.timestamp(),  # Unix timestamp (float) for filtering
                 "timestamp_iso": ocr_data["timestamp"],  # ISO string for display
@@ -265,16 +284,15 @@ class FlowRunner:
                 "data_type": "ocr",
                 "task_category": "screenshot_ocr"
             }
-            
-            # Store in ChromaDB collection 'screen_ocr_history'
+
             await chroma_client.add_document(
-                collection_name="screen_ocr_history",
+                collection_name=self._collection_name,
                 doc_id=ocr_data["timestamp"] + "_" + ocr_data["screen_name"],
                 content=content,
                 metadata=metadata
             )
-            
-            logger.debug(f"Stored OCR data in ChromaDB screen_ocr_history collection: {ocr_data['timestamp']}")
+
+            logger.debug(f"Stored OCR data in ChromaDB {self._collection_name} collection: {ocr_data['timestamp']}")
             
         except Exception as error:
             logger.warning(f"ChromaDB storage failed, but OCR data was already saved: {error}")
@@ -299,8 +317,8 @@ class FlowRunner:
                 from chromadb.errors import ChromaError
                 import requests.exceptions
                 
-                client = chromadb.HttpClient(host="localhost", port=8000)
-                
+                client = chromadb.HttpClient(host=chroma_client.host, port=chroma_client.port)
+
                 # Test connection with heartbeat
                 try:
                     client.heartbeat()
@@ -308,15 +326,15 @@ class FlowRunner:
                     logger.warning(f"ChromaDB heartbeat failed: {hb_error}")
                     logger.info("OCR files are safely stored as JSON files and can be loaded when ChromaDB is available")
                     return
-                
-                # Get or create the screen_ocr_history collection
+
+                # Get or create the instance-specific collection
                 collection = client.get_or_create_collection(
-                    name="screen_ocr_history",
+                    name=self._collection_name,
                     metadata={"description": "Screenshot OCR data"}
                 )
-                
+
             except requests.exceptions.ConnectionError as conn_error:
-                logger.warning(f"ChromaDB server not available for bulk loading (is server running on localhost:8000?): {conn_error}")
+                logger.warning(f"ChromaDB server not available for bulk loading (is server running on {chroma_client.host}:{chroma_client.port}?): {conn_error}")
                 logger.info("OCR files are safely stored as JSON files and can be loaded when ChromaDB is available")
                 return
             except Exception as chroma_error:

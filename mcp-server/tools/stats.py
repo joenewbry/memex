@@ -221,33 +221,57 @@ class StatsTool:
                 "last_updated": now().isoformat()
             }
     
+    def _resolve_chroma_url(self) -> tuple:
+        """Derive ChromaDB URL and collection name from instance config."""
+        host, port, collection = "localhost", 8000, "screen_ocr_history"
+        try:
+            import json as _json
+            inst_path = Path.home() / ".memex" / "instance.json"
+            if inst_path.exists():
+                with open(inst_path) as f:
+                    data = _json.load(f)
+                mode = data.get("hosting_mode", "local")
+                instance_name = data.get("instance_name", "")
+                if instance_name:
+                    collection = f"{instance_name}_ocr_history"
+                if mode == "jetson":
+                    host = data.get("jetson_host", host)
+                    port = data.get("jetson_chroma_port", port)
+                elif mode == "remote":
+                    host = data.get("remote_host", host)
+                    port = data.get("remote_chroma_port", port)
+        except Exception:
+            pass
+        return f"http://{host}:{port}", collection
+
     async def _get_chroma_status(self) -> Dict[str, Any]:
         """Get ChromaDB collection status."""
         try:
             import httpx
-            
+
+            url, collection_name = self._resolve_chroma_url()
+
             # Try to connect to ChromaDB
             async with httpx.AsyncClient() as client:
-                response = await client.get("http://localhost:8000/api/v1/heartbeat", timeout=2.0)
+                response = await client.get(f"{url}/api/v1/heartbeat", timeout=2.0)
                 if response.status_code != 200:
                     return {
-                        "name": "screen_ocr_history",
+                        "name": collection_name,
                         "status": "server_unavailable",
                         "error": f"ChromaDB server returned {response.status_code}"
                     }
-                
+
                 # Server is running, try to get collection info
-                # Note: This is a simplified check - full ChromaDB client would provide more details
                 return {
-                    "name": "screen_ocr_history",
+                    "name": collection_name,
                     "status": "server_running",
-                    "server_url": "http://localhost:8000",
+                    "server_url": url,
                     "note": "Server is accessible - detailed collection stats require ChromaDB client"
                 }
-                
+
         except Exception as e:
             return {
-                "name": "screen_ocr_history",
+                "name": collection_name,
                 "status": "unavailable",
                 "error": str(e)
             }

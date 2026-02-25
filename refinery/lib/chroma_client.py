@@ -70,48 +70,46 @@ class ChromaClientManager:
             logger.error(f"Failed to connect to ChromaDB: {error}")
             raise Exception(f"ChromaDB connection failed: {error}")
     
+    def _resolve_collection_name(self) -> str:
+        """Derive ChromaDB collection name from instance config."""
+        try:
+            from pathlib import Path
+            import json as _json
+            inst_path = Path.home() / ".memex" / "instance.json"
+            if inst_path.exists():
+                with open(inst_path) as f:
+                    data = _json.load(f)
+                instance_name = data.get("instance_name", "")
+                if instance_name:
+                    return f"{instance_name}_ocr_history"
+        except Exception as e:
+            logger.warning(f"Could not read instance config for collection name: {e}")
+        return "screen_ocr_history"
+
     async def _ensure_collections(self):
         """Ensure required collections exist."""
-        default_collections = {
-            "screen_ocr_history": "Screen tracking history with timestamps and metadata",
-        }
+        collection_name = self._resolve_collection_name()
 
         try:
-            existing_collections = self.client.list_collections()
-            existing_names = [c.name for c in existing_collections]
-
-            for name, description in default_collections.items():
-                if name not in existing_names:
-                    collection = self.client.create_collection(
-                        name=name,
-                        metadata={"description": description},
-                        embedding_function=self.embedding_function
-                    )
-                    logger.info(f"Created collection: {name}")
-                else:
-                    collection = self.client.get_collection(name)
-                    logger.debug(f"Using existing collection: {name}")
-
-                self.collections[name] = collection
+            # Use get_or_create to avoid race conditions and UniqueConstraintErrors
+            collection = self.client.get_or_create_collection(
+                name=collection_name,
+                metadata={"description": "Screen tracking history with timestamps and metadata"},
+                embedding_function=self.embedding_function,
+            )
+            self.collections[collection_name] = collection
+            logger.info(f"Using collection: {collection_name}")
 
             # Create multimodal collection if CLIP is available
             if self.clip_embedding_function:
                 mm_name = "screen_multimodal"
-                if mm_name not in existing_names:
-                    mm_collection = self.client.create_collection(
-                        name=mm_name,
-                        metadata={"description": "Multimodal screen captures with CLIP embeddings"},
-                        embedding_function=self.clip_embedding_function,
-                        data_loader=None,
-                    )
-                    logger.info(f"Created multimodal collection: {mm_name}")
-                else:
-                    mm_collection = self.client.get_collection(
-                        name=mm_name,
-                        embedding_function=self.clip_embedding_function,
-                    )
-                    logger.debug(f"Using existing multimodal collection: {mm_name}")
+                mm_collection = self.client.get_or_create_collection(
+                    name=mm_name,
+                    metadata={"description": "Multimodal screen captures with CLIP embeddings"},
+                    embedding_function=self.clip_embedding_function,
+                )
                 self.collections[mm_name] = mm_collection
+                logger.info(f"Using multimodal collection: {mm_name}")
 
         except Exception as error:
             logger.error(f"Error ensuring collections: {error}")

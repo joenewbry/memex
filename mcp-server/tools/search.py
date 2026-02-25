@@ -31,26 +31,65 @@ class SearchTool:
         # Try to initialize ChromaDB client
         self._init_chroma()
     
+    def _resolve_collection_name(self) -> str:
+        """Derive ChromaDB collection name from instance config."""
+        try:
+            import json as _json
+            inst_path = Path.home() / ".memex" / "instance.json"
+            if inst_path.exists():
+                with open(inst_path) as f:
+                    data = _json.load(f)
+                instance_name = data.get("instance_name", "")
+                if instance_name:
+                    return f"{instance_name}_ocr_history"
+        except Exception as e:
+            logger.warning(f"Could not read instance config for collection name: {e}")
+        return "screen_ocr_history"
+
+    def _resolve_chroma_host(self) -> tuple:
+        """Derive ChromaDB host/port from instance config."""
+        try:
+            import json as _json
+            inst_path = Path.home() / ".memex" / "instance.json"
+            if inst_path.exists():
+                with open(inst_path) as f:
+                    data = _json.load(f)
+                mode = data.get("hosting_mode", "local")
+                if mode == "jetson":
+                    host = data.get("jetson_host", "localhost")
+                    port = data.get("jetson_chroma_port", 8000)
+                    return host, port
+                elif mode == "remote":
+                    host = data.get("remote_host", "localhost")
+                    port = data.get("remote_chroma_port", 8000)
+                    return host, port
+        except Exception as e:
+            logger.warning(f"Could not read instance config for chroma host: {e}")
+        return "localhost", 8000
+
     def _init_chroma(self):
         """Initialize ChromaDB client."""
         try:
             import chromadb
-            
+
+            host, port = self._resolve_chroma_host()
+            collection_name = self._resolve_collection_name()
+
             # Try HTTP client first (server running)
             try:
-                self.chroma_client = chromadb.HttpClient(host="localhost", port=8000)
+                self.chroma_client = chromadb.HttpClient(host=host, port=port)
                 self.chroma_client.heartbeat()
-                logger.info("Connected to ChromaDB server at localhost:8000")
+                logger.info(f"Connected to ChromaDB server at {host}:{port}")
             except:
                 # Fall back to persistent client
                 chroma_path = self.workspace_root / "refinery" / "chroma"
                 self.chroma_client = chromadb.PersistentClient(path=str(chroma_path))
                 logger.info("Connected to ChromaDB using persistent client")
-            
+
             # Try to get the collection
             try:
-                self.collection = self.chroma_client.get_collection("screen_ocr_history")
-                logger.info("Connected to ChromaDB collection 'screen_ocr_history'")
+                self.collection = self.chroma_client.get_collection(collection_name)
+                logger.info(f"Connected to ChromaDB collection '{collection_name}'")
             except Exception as e:
                 logger.warning(f"ChromaDB collection not found: {e}")
                 self.collection = None
