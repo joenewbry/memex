@@ -63,7 +63,8 @@ class ActivityTool:
                     microsecond = '000000'
             
             iso_string = f"{date_part}T{hour}:{minute}:{second}.{microsecond}"
-            return datetime.fromisoformat(iso_string)
+            naive_dt = datetime.fromisoformat(iso_string)
+            return naive_dt.astimezone()
             
         except Exception as e:
             logger.debug(f"Error parsing timestamp from filename {filename}: {e}")
@@ -117,7 +118,7 @@ class ActivityTool:
                     # Quick timestamp check from filename first
                     file_timestamp = self._parse_filename_timestamp(file_path.name)
                     if not file_timestamp:
-                        file_timestamp = datetime.fromtimestamp(file_path.stat().st_mtime)
+                        file_timestamp = datetime.fromtimestamp(file_path.stat().st_mtime).astimezone()
                     
                     # Skip files outside time range
                     if file_timestamp < start_time or file_timestamp > end_time:
@@ -290,16 +291,20 @@ class ActivityTool:
         try:
             logger.info(f"Generating time range summary: {start_time} to {end_time}, max_results={max_results}")
             
-            # Parse time ranges
+            # Parse time ranges (ensure timezone-aware)
             if start_time.count('T') == 0:
-                start_dt = datetime.fromisoformat(start_time + "T00:00:00")
+                start_dt = datetime.fromisoformat(start_time + "T00:00:00").astimezone()
             else:
                 start_dt = datetime.fromisoformat(start_time)
-            
+                if start_dt.tzinfo is None:
+                    start_dt = start_dt.astimezone()
+
             if end_time.count('T') == 0:
-                end_dt = datetime.fromisoformat(end_time + "T23:59:59")
+                end_dt = datetime.fromisoformat(end_time + "T23:59:59").astimezone()
             else:
                 end_dt = datetime.fromisoformat(end_time)
+                if end_dt.tzinfo is None:
+                    end_dt = end_dt.astimezone()
             
             if start_dt >= end_dt:
                 raise ValueError("Start time must be before end time")
@@ -312,7 +317,7 @@ class ActivityTool:
                 try:
                     file_timestamp = self._parse_filename_timestamp(file_path.name)
                     if not file_timestamp:
-                        file_timestamp = datetime.fromtimestamp(file_path.stat().st_mtime)
+                        file_timestamp = datetime.fromtimestamp(file_path.stat().st_mtime).astimezone()
                     
                     if start_dt <= file_timestamp <= end_dt:
                         data = self._read_ocr_file(file_path)
