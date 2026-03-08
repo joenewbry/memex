@@ -27,6 +27,10 @@ sshpass -p 'rising' ssh prometheus@prometheus.local \
   'echo "rising" | sudo -S systemctl restart memex-server'
 ```
 
+## Important: Prometheus vs Local
+
+Memex services run on Prometheus (Jetson), not locally. When adding cron jobs, data pipelines, or services, always consider whether they should run on Prometheus. Active OCR data on local machines lives at `~/.memex/refinery/data/ocr/` — the dev repo copy (`refinery/data/ocr/`) may be stale.
+
 ## Key Paths
 
 - Dashboard: `prometheus/server/dashboard.html`
@@ -34,5 +38,8 @@ sshpass -p 'rising' ssh prometheus@prometheus.local \
 - CLI: `cli/`
 - Capture: `refinery/`
 - MCP Server: `mcp-server/`
+- Skill file: `MEMEX_SKILL.md` (knowledge layer for agents)
+- Daily export: `bin/memex-daily-export`
+- Summaries: `~/.memex/summaries/` (local), `~/.memex/summaries/{instance}/` (Prometheus)
 - Jetson data: `/ssd/memex/data/{instance}/ocr/`
 - Jetson config: `/ssd/memex/config/`
