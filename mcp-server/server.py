@@ -88,7 +88,6 @@ class FlowMCPServer:
         # Register tools
         self.tools = {
             "search-screenshots": self.search_tool,
-            "what-can-i-do": self.system_tool,
             "get-stats": self.stats_tool,
             "activity-graph": self.activity_tool,
             "time-range-summary": self.activity_tool,
@@ -109,7 +108,7 @@ class FlowMCPServer:
         # Search Screenshots
         tools.append(Tool(
             name="search-screenshots",
-            description="Search OCR data from screenshots with optional filtering by date range.",
+            description="Search OCR text from screen captures. See MEMEX_SKILL.md for usage guidance.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -146,21 +145,10 @@ class FlowMCPServer:
             },
         ))
         
-        # What Can I Do
-        tools.append(Tool(
-            name="what-can-i-do",
-            description="Get information about what you can do with Flow",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-                "additionalProperties": False,
-            },
-        ))
-        
         # Get Stats
         tools.append(Tool(
             name="get-stats",
-            description="Get statistics about OCR data files and ChromaDB collection",
+            description="Get capture counts and ChromaDB status.",
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -171,7 +159,7 @@ class FlowMCPServer:
         # Activity Graph
         tools.append(Tool(
             name="activity-graph",
-            description="Generate activity timeline graph data showing when Flow was active capturing screens",
+            description="Activity timeline showing capture frequency over time.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -199,7 +187,7 @@ class FlowMCPServer:
         # Time Range Summary
         tools.append(Tool(
             name="time-range-summary",
-            description="Get a sampled summary of OCR data over a specified time range by returning up to 24 evenly distributed results",
+            description="Sampled OCR snapshots evenly distributed across a time range.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -230,7 +218,7 @@ class FlowMCPServer:
         # Start Flow
         tools.append(Tool(
             name="start-flow",
-            description="Start Flow screenshot recording (starts ChromaDB server and Python capture process)",
+            description="Start screen capture and ChromaDB.",
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -241,7 +229,7 @@ class FlowMCPServer:
         # Stop Flow
         tools.append(Tool(
             name="stop-flow",
-            description="Stop Flow screenshot recording (stops Python capture process and ChromaDB server)",
+            description="Stop screen capture and ChromaDB.",
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -249,10 +237,123 @@ class FlowMCPServer:
             },
         ))
 
+        # Sample Time Range
+        tools.append(Tool(
+            name="sample-time-range",
+            description="Evenly distributed OCR samples across a time range with smart windowing.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "start_time": {
+                        "type": "string",
+                        "description": "Start time (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)",
+                    },
+                    "end_time": {
+                        "type": "string",
+                        "description": "End time (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)",
+                    },
+                    "max_samples": {
+                        "type": "integer",
+                        "description": "Max samples to return (default: 24)",
+                        "default": 24,
+                    },
+                    "min_window_minutes": {
+                        "type": "integer",
+                        "description": "Minimum minutes between samples (default: 15)",
+                        "default": 15,
+                    },
+                    "include_text": {
+                        "type": "boolean",
+                        "description": "Include OCR text (default: true)",
+                        "default": True,
+                    },
+                },
+                "required": ["start_time", "end_time"],
+                "additionalProperties": False,
+            },
+        ))
+
+        # Vector Search Windowed
+        tools.append(Tool(
+            name="vector-search-windowed",
+            description="Semantic vector search within a time range.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query",
+                    },
+                    "start_time": {
+                        "type": "string",
+                        "description": "Start time (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)",
+                    },
+                    "end_time": {
+                        "type": "string",
+                        "description": "End time (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Max results (default: 20)",
+                        "default": 20,
+                    },
+                    "min_relevance": {
+                        "type": "number",
+                        "description": "Minimum relevance score 0-1 (default: 0.5)",
+                        "default": 0.5,
+                    },
+                },
+                "required": ["query", "start_time", "end_time"],
+                "additionalProperties": False,
+            },
+        ))
+
+        # Search Recent Relevant
+        tools.append(Tool(
+            name="search-recent-relevant",
+            description="Relevance + recency weighted search. Auto-expands time window.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Max results (default: 10)",
+                        "default": 10,
+                    },
+                    "initial_days": {
+                        "type": "integer",
+                        "description": "Days to search initially (default: 7)",
+                        "default": 7,
+                    },
+                    "max_days": {
+                        "type": "integer",
+                        "description": "Max days to expand to (default: 90)",
+                        "default": 90,
+                    },
+                    "recency_weight": {
+                        "type": "number",
+                        "description": "Weight for recency vs relevance 0-1 (default: 0.5)",
+                        "default": 0.5,
+                    },
+                    "min_score": {
+                        "type": "number",
+                        "description": "Minimum combined score (default: 0.6)",
+                        "default": 0.6,
+                    },
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        ))
+
         # Daily Summary
         tools.append(Tool(
             name="daily-summary",
-            description="Get a structured summary of a single day's activity, grouped by time-of-day periods with sampled content. Defaults to today.",
+            description="Day's activity grouped by time-of-day periods. Defaults to today.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -288,8 +389,6 @@ class FlowMCPServer:
                     limit=arguments.get("limit", 10),
                     data_type=arguments.get("data_type")
                 )
-            elif name == "what-can-i-do":
-                return await tool.what_can_i_do()
             elif name == "get-stats":
                 return await tool.get_stats()
             elif name == "activity-graph":

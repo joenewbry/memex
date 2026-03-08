@@ -1,0 +1,259 @@
+#!/usr/bin/env python3
+"""
+Memex Daily Export — generates a markdown summary of the day's activity.
+
+Reads OCR data files directly (no MCP dependency) and writes a summary to
+~/.memex/summaries/YYYY-MM-DD.md with convenience symlinks for today/yesterday.
+
+Usage:
+    memex-daily-export              # Export today
+    memex-daily-export 2026-03-07   # Export specific date
+    memex-daily-export --rotate     # Just rotate today/yesterday symlinks
+"""
+
+import json
+import os
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Dict, List, Optional, Any
+
+SUMMARIES_DIR = Path.home() / ".memex" / "summaries"
+
+# Determine instance name from config
+def get_instance_name() -> str:
+    config_file = Path.home() / ".memex" / "instance.json"
+    if config_file.exists():
+        try:
+            with open(config_file) as f:
+                return json.load(f).get("instance_name", "default")
+        except Exception:
+            pass
+    return "default"
+
+# Try multiple OCR data locations (local dev, local ~/.memex, Prometheus instance paths)
+INSTANCE = get_instance_name()
+OCR_DATA_CANDIDATES = [
+    Path(__file__).resolve().parent.parent / "refinery" / "data" / "ocr",
+    Path.home() / ".memex" / "refinery" / "data" / "ocr",
+    Path(f"/ssd/memex/data/{INSTANCE}/ocr"),        # Prometheus instance-specific
+    Path("/ssd/memex/data/walmart/ocr"),             # Prometheus walmart instance
+]
+
+# Time-of-day periods
+PERIODS = [
+    ("Early Morning", 5, 8),
+    ("Morning", 8, 12),
+    ("Afternoon", 12, 17),
+    ("Evening", 17, 21),
+    ("Night", 21, 24),
+    ("Late Night", 0, 5),
+]
+
+
+def find_ocr_dir() -> Optional[Path]:
+    """Find the OCR data directory."""
+    for candidate in OCR_DATA_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def parse_filename_timestamp(filename: str) -> Optional[datetime]:
+    """Parse timestamp from OCR filename like 2026-03-08T14-30-05-123456_ocr.json."""
+    try:
+        if not filename.endswith(".json"):
+            return None
+        timestamp_part = filename.split("_")[0]
+        parts = timestamp_part.split("T")
+        if len(parts) != 2:
+            return None
+        date_part, time_part = parts
+        time_components = time_part.split("-")
+        if len(time_components) < 3:
+            return None
+        hour, minute = time_components[0], time_components[1]
+        if len(time_components) >= 4:
+            second = time_components[2]
+        else:
+            second = time_components[2].split(".")[0]
+        return datetime.fromisoformat(f"{date_part}T{hour}:{minute}:{second}")
+    except Exception:
+        return None
+
+
+def get_period(hour: int) -> str:
+    """Return the time-of-day period label for a given hour."""
+    for label, start, end in PERIODS:
+        if start <= hour < end:
+            return label
+    return "Late Night"
+
+
+def load_day_captures(ocr_dir: Path, target_date) -> List[Dict[str, Any]]:
+    """Load all OCR captures for a given date."""
+    captures = []
+    day_prefix = target_date.isoformat()
+
+    for f in ocr_dir.iterdir():
+        if not f.name.endswith(".json"):
+            continue
+        if not f.name.startswith(day_prefix):
+            continue
+
+        ts = parse_filename_timestamp(f.name)
+        if not ts:
+            continue
+
+        try:
+            with open(f, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except Exception:
+            continue
+
+        text = data.get("text", "")
+        captures.append({
+            "timestamp": ts,
+            "hour": ts.hour,
+            "screen_name": data.get("screen_name", "unknown"),
+            "word_count": len(text.split()) if text else 0,
+            "text": text,
+        })
+
+    captures.sort(key=lambda c: c["timestamp"])
+    return captures
+
+
+def sample_evenly(items: list, n: int) -> list:
+    """Return up to n items evenly distributed."""
+    if len(items) <= n:
+        return items
+    step = len(items) / n
+    return [items[int(i * step)] for i in range(n)]
+
+
+def generate_summary(target_date, captures: List[Dict]) -> str:
+    """Generate markdown summary from captures."""
+    date_str = target_date.isoformat()
+    weekday = target_date.strftime("%A")
+
+    lines = [
+        f"# Memex Daily Summary — {weekday}, {date_str}",
+        "",
+    ]
+
+    if not captures:
+        lines.append("No captures recorded for this day.")
+        return "\n".join(lines)
+
+    # Stats
+    total = len(captures)
+    total_words = sum(c["word_count"] for c in captures)
+    unique_screens = sorted(set(c["screen_name"] for c in captures))
+    active_hours = sorted(set(c["hour"] for c in captures))
+    first_ts = captures[0]["timestamp"].strftime("%H:%M")
+    last_ts = captures[-1]["timestamp"].strftime("%H:%M")
+
+    lines.extend([
+        f"**Captures:** {total} | **Words:** {total_words:,} | **Active hours:** {len(active_hours)}",
+        f"**First activity:** {first_ts} | **Last activity:** {last_ts}",
+        f"**Screens:** {', '.join(unique_screens)}",
+        "",
+    ])
+
+    # Group by period
+    period_buckets: Dict[str, List[Dict]] = {}
+    for cap in captures:
+        period = get_period(cap["hour"])
+        period_buckets.setdefault(period, []).append(cap)
+
+    for label, start_h, end_h in PERIODS:
+        bucket = period_buckets.get(label, [])
+        if not bucket:
+            continue
+
+        period_words = sum(c["word_count"] for c in bucket)
+        period_screens = sorted(set(c["screen_name"] for c in bucket))
+        lines.extend([
+            f"## {label} ({start_h:02d}:00–{end_h:02d}:00)",
+            f"{len(bucket)} captures, {period_words:,} words — {', '.join(period_screens)}",
+            "",
+        ])
+
+        # Show a few sample snippets
+        samples = sample_evenly(bucket, 3)
+        for s in samples:
+            time_str = s["timestamp"].strftime("%H:%M")
+            snippet = s["text"][:200].replace("\n", " ").strip()
+            if len(s["text"]) > 200:
+                snippet += "..."
+            if snippet:
+                lines.append(f"- **{time_str}** [{s['screen_name']}]: {snippet}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def rotate_symlinks(today_date):
+    """Update today.md and yesterday.md symlinks."""
+    yesterday_date = today_date - timedelta(days=1)
+
+    today_file = SUMMARIES_DIR / f"{today_date.isoformat()}.md"
+    yesterday_file = SUMMARIES_DIR / f"{yesterday_date.isoformat()}.md"
+
+    today_link = SUMMARIES_DIR / "today.md"
+    yesterday_link = SUMMARIES_DIR / "yesterday.md"
+
+    # Update today symlink
+    if today_file.exists():
+        today_link.unlink(missing_ok=True)
+        today_link.symlink_to(today_file.name)
+
+    # Update yesterday symlink
+    if yesterday_file.exists():
+        yesterday_link.unlink(missing_ok=True)
+        yesterday_link.symlink_to(yesterday_file.name)
+
+
+def main():
+    SUMMARIES_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Handle --rotate flag
+    if "--rotate" in sys.argv:
+        rotate_symlinks(datetime.now().date())
+        print("Rotated symlinks.")
+        return
+
+    # Determine target date
+    if len(sys.argv) > 1 and sys.argv[1] != "--rotate":
+        try:
+            target_date = datetime.strptime(sys.argv[1], "%Y-%m-%d").date()
+        except ValueError:
+            print(f"Invalid date format: {sys.argv[1]}. Use YYYY-MM-DD.", file=sys.stderr)
+            sys.exit(1)
+    else:
+        target_date = datetime.now().date()
+
+    # Find OCR data
+    ocr_dir = find_ocr_dir()
+    if not ocr_dir:
+        print("No OCR data directory found.", file=sys.stderr)
+        sys.exit(1)
+
+    # Load and generate
+    captures = load_day_captures(ocr_dir, target_date)
+    summary = generate_summary(target_date, captures)
+
+    # Write summary
+    output_file = SUMMARIES_DIR / f"{target_date.isoformat()}.md"
+    output_file.write_text(summary, encoding="utf-8")
+    print(f"Wrote {output_file} ({len(captures)} captures)")
+
+    # Rotate symlinks if exporting today
+    if target_date == datetime.now().date():
+        rotate_symlinks(target_date)
+        print("Updated today/yesterday symlinks.")
+
+
+if __name__ == "__main__":
+    main()

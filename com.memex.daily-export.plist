@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.memex.daily-export</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/Joseph.Newbry@alaskaair.com/dev/memex/bin/memex-daily-export</string>
+    </array>
+
+    <!-- Run at 11:55 PM to generate today's summary -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key>
+            <integer>23</integer>
+            <key>Minute</key>
+            <integer>55</integer>
+        </dict>
+        <!-- Run at 00:02 to rotate symlinks after midnight -->
+        <dict>
+            <key>Hour</key>
+            <integer>0</integer>
+            <key>Minute</key>
+            <integer>2</integer>
+        </dict>
+    </array>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/memex-daily-export.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/memex-daily-export-error.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/Users/Joseph.Newbry@alaskaair.com/.local/bin</string>
+    </dict>
+</dict>
+</plist>
