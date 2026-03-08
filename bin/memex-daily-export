@@ -5,10 +5,15 @@ Memex Daily Export — generates a markdown summary of the day's activity.
 Reads OCR data files directly (no MCP dependency) and writes a summary to
 ~/.memex/summaries/YYYY-MM-DD.md with convenience symlinks for today/yesterday.
 
+On Prometheus (Jetson), generates per-instance summaries under
+~/.memex/summaries/{instance}/YYYY-MM-DD.md.
+
 Usage:
-    memex-daily-export              # Export today
-    memex-daily-export 2026-03-07   # Export specific date
-    memex-daily-export --rotate     # Just rotate today/yesterday symlinks
+    memex-daily-export                     # Export today (auto-detect instance)
+    memex-daily-export 2026-03-07          # Export specific date
+    memex-daily-export --instance alaska   # Export specific instance
+    memex-daily-export --all-instances     # Export all Prometheus instances
+    memex-daily-export --rotate            # Just rotate today/yesterday symlinks
 """
 
 import json
@@ -19,26 +24,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 SUMMARIES_DIR = Path.home() / ".memex" / "summaries"
-
-# Determine instance name from config
-def get_instance_name() -> str:
-    config_file = Path.home() / ".memex" / "instance.json"
-    if config_file.exists():
-        try:
-            with open(config_file) as f:
-                return json.load(f).get("instance_name", "default")
-        except Exception:
-            pass
-    return "default"
-
-# Try multiple OCR data locations (local dev, local ~/.memex, Prometheus instance paths)
-INSTANCE = get_instance_name()
-OCR_DATA_CANDIDATES = [
-    Path(__file__).resolve().parent.parent / "refinery" / "data" / "ocr",
-    Path.home() / ".memex" / "refinery" / "data" / "ocr",
-    Path(f"/ssd/memex/data/{INSTANCE}/ocr"),        # Prometheus instance-specific
-    Path("/ssd/memex/data/walmart/ocr"),             # Prometheus walmart instance
-]
+PROMETHEUS_DATA_ROOT = Path("/ssd/memex/data")
 
 # Time-of-day periods
 PERIODS = [
@@ -51,12 +37,53 @@ PERIODS = [
 ]
 
 
-def find_ocr_dir() -> Optional[Path]:
-    """Find the OCR data directory."""
-    for candidate in OCR_DATA_CANDIDATES:
+def get_instance_name() -> str:
+    """Determine instance name from config."""
+    config_file = Path.home() / ".memex" / "instance.json"
+    if config_file.exists():
+        try:
+            with open(config_file) as f:
+                return json.load(f).get("instance_name", "default")
+        except Exception:
+            pass
+    return "default"
+
+
+def is_prometheus() -> bool:
+    """Detect if running on Prometheus (Jetson)."""
+    return PROMETHEUS_DATA_ROOT.exists()
+
+
+def find_ocr_dir(instance: Optional[str] = None) -> Optional[Path]:
+    """Find the OCR data directory, checking multiple locations."""
+    candidates = []
+
+    if instance and is_prometheus():
+        # Prometheus: instance-specific path
+        candidates.append(PROMETHEUS_DATA_ROOT / instance / "ocr")
+    else:
+        # Local machine: prefer ~/.memex (active capture dir) over dev repo
+        candidates.extend([
+            Path.home() / ".memex" / "refinery" / "data" / "ocr",
+            Path(__file__).resolve().parent.parent / "refinery" / "data" / "ocr",
+        ])
+        # Also check Prometheus paths if available
+        inst = instance or get_instance_name()
+        if is_prometheus():
+            candidates.append(PROMETHEUS_DATA_ROOT / inst / "ocr")
+
+    for candidate in candidates:
         if candidate.exists():
             return candidate
     return None
+
+
+def get_all_instances() -> List[str]:
+    """Get all instance names from Prometheus data directory."""
+    if not is_prometheus():
+        return []
+    return [d.name for d in PROMETHEUS_DATA_ROOT.iterdir()
+            if d.is_dir() and (d / "ocr").exists()]
 
 
 def parse_filename_timestamp(filename: str) -> Optional[datetime]:
@@ -132,15 +159,16 @@ def sample_evenly(items: list, n: int) -> list:
     return [items[int(i * step)] for i in range(n)]
 
 
-def generate_summary(target_date, captures: List[Dict]) -> str:
+def generate_summary(target_date, captures: List[Dict], instance: Optional[str] = None) -> str:
     """Generate markdown summary from captures."""
     date_str = target_date.isoformat()
     weekday = target_date.strftime("%A")
 
-    lines = [
-        f"# Memex Daily Summary — {weekday}, {date_str}",
-        "",
-    ]
+    title = f"# Memex Daily Summary — {weekday}, {date_str}"
+    if instance:
+        title += f" ({instance})"
+
+    lines = [title, ""]
 
     if not captures:
         lines.append("No captures recorded for this day.")
@@ -194,65 +222,114 @@ def generate_summary(target_date, captures: List[Dict]) -> str:
     return "\n".join(lines)
 
 
-def rotate_symlinks(today_date):
+def rotate_symlinks(summaries_dir: Path, today_date):
     """Update today.md and yesterday.md symlinks."""
     yesterday_date = today_date - timedelta(days=1)
 
-    today_file = SUMMARIES_DIR / f"{today_date.isoformat()}.md"
-    yesterday_file = SUMMARIES_DIR / f"{yesterday_date.isoformat()}.md"
+    today_file = summaries_dir / f"{today_date.isoformat()}.md"
+    yesterday_file = summaries_dir / f"{yesterday_date.isoformat()}.md"
 
-    today_link = SUMMARIES_DIR / "today.md"
-    yesterday_link = SUMMARIES_DIR / "yesterday.md"
+    today_link = summaries_dir / "today.md"
+    yesterday_link = summaries_dir / "yesterday.md"
 
-    # Update today symlink
     if today_file.exists():
         today_link.unlink(missing_ok=True)
         today_link.symlink_to(today_file.name)
 
-    # Update yesterday symlink
     if yesterday_file.exists():
         yesterday_link.unlink(missing_ok=True)
         yesterday_link.symlink_to(yesterday_file.name)
 
 
-def main():
-    SUMMARIES_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Handle --rotate flag
-    if "--rotate" in sys.argv:
-        rotate_symlinks(datetime.now().date())
-        print("Rotated symlinks.")
+def export_instance(target_date, instance: Optional[str] = None):
+    """Export daily summary for a single instance."""
+    ocr_dir = find_ocr_dir(instance)
+    if not ocr_dir:
+        print(f"No OCR data directory found for instance '{instance or 'local'}'.", file=sys.stderr)
         return
 
-    # Determine target date
-    if len(sys.argv) > 1 and sys.argv[1] != "--rotate":
-        try:
-            target_date = datetime.strptime(sys.argv[1], "%Y-%m-%d").date()
-        except ValueError:
-            print(f"Invalid date format: {sys.argv[1]}. Use YYYY-MM-DD.", file=sys.stderr)
-            sys.exit(1)
+    # Per-instance subdirectory on Prometheus, flat on local
+    if instance and is_prometheus():
+        out_dir = SUMMARIES_DIR / instance
     else:
-        target_date = datetime.now().date()
+        out_dir = SUMMARIES_DIR
 
-    # Find OCR data
-    ocr_dir = find_ocr_dir()
-    if not ocr_dir:
-        print("No OCR data directory found.", file=sys.stderr)
-        sys.exit(1)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load and generate
     captures = load_day_captures(ocr_dir, target_date)
-    summary = generate_summary(target_date, captures)
+    summary = generate_summary(target_date, captures, instance)
 
-    # Write summary
-    output_file = SUMMARIES_DIR / f"{target_date.isoformat()}.md"
+    output_file = out_dir / f"{target_date.isoformat()}.md"
     output_file.write_text(summary, encoding="utf-8")
     print(f"Wrote {output_file} ({len(captures)} captures)")
 
-    # Rotate symlinks if exporting today
     if target_date == datetime.now().date():
-        rotate_symlinks(target_date)
-        print("Updated today/yesterday symlinks.")
+        rotate_symlinks(out_dir, target_date)
+
+
+def main():
+    SUMMARIES_DIR.mkdir(parents=True, exist_ok=True)
+
+    args = sys.argv[1:]
+
+    # Parse flags
+    rotate_only = "--rotate" in args
+    all_instances = "--all-instances" in args
+    instance = None
+    target_date = None
+
+    if "--instance" in args:
+        idx = args.index("--instance")
+        if idx + 1 < len(args):
+            instance = args[idx + 1]
+
+    # Parse date (first positional arg that looks like a date)
+    for arg in args:
+        if arg.startswith("--"):
+            continue
+        if arg == instance:
+            continue
+        try:
+            target_date = datetime.strptime(arg, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+
+    if target_date is None:
+        target_date = datetime.now().date()
+
+    # Handle --rotate
+    if rotate_only:
+        if all_instances and is_prometheus():
+            for inst in get_all_instances():
+                inst_dir = SUMMARIES_DIR / inst
+                if inst_dir.exists():
+                    rotate_symlinks(inst_dir, target_date)
+            print(f"Rotated symlinks for all instances.")
+        else:
+            rotate_symlinks(SUMMARIES_DIR, target_date)
+            print("Rotated symlinks.")
+        return
+
+    # Handle --all-instances (Prometheus only)
+    if all_instances:
+        instances = get_all_instances()
+        if not instances:
+            print("No instances found (not on Prometheus?).", file=sys.stderr)
+            sys.exit(1)
+        for inst in instances:
+            export_instance(target_date, inst)
+        return
+
+    # Single instance export
+    if instance:
+        export_instance(target_date, instance)
+    elif is_prometheus():
+        # On Prometheus with no --instance: export all
+        for inst in get_all_instances():
+            export_instance(target_date, inst)
+    else:
+        # Local machine
+        export_instance(target_date)
 
 
 if __name__ == "__main__":
